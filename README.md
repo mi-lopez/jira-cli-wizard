@@ -1,5 +1,6 @@
 # 🎯 Jira CLI Wizard
 
+[![CI](https://github.com/mi-lopez/jira-cli-wizard/actions/workflows/ci.yml/badge.svg)](https://github.com/mi-lopez/jira-cli-wizard/actions/workflows/ci.yml)
 [![PHP Version](https://img.shields.io/badge/php-%5E8.1-blue)](https://php.net)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Latest Version](https://img.shields.io/badge/version-1.0.0-orange)](https://github.com/mi-lopez/jira-cli-wizard/releases)
