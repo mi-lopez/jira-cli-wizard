@@ -1,0 +1,74 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use MiLopez\JiraCliWizard\Commands\ConfigureCommand;
+use MiLopez\JiraCliWizard\Commands\CreateFromCommand;
+use MiLopez\JiraCliWizard\Commands\CreateTicketCommand;
+use MiLopez\JiraCliWizard\Commands\StatusCommand;
+use Symfony\Component\Console\Application;
+
+// Autoload
+$autoloadPaths = [
+__DIR__ . '/../vendor/autoload.php',
+__DIR__ . '/../../../autoload.php',
+];
+
+foreach ($autoloadPaths as $autoloadPath) {
+    if (file_exists($autoloadPath)) {
+        require_once $autoloadPath;
+        break;
+    }
+}
+
+$application = new Application('Jira CLI Wizard', '1.0.0');
+
+// Show banner when no command is provided
+if (empty($argv[1]) || in_array($argv[1], ['--help', '-h', 'help'])) {
+    $banner = <<<'BANNER'
+
+╔═══════════════════════════════════╗
+║           🎯 Jira CLI Wizard      ║
+║       Create tickets from CLI     ║
+╚═══════════════════════════════════╝
+
+Available commands:
+ create       Create a new Jira ticket (default)
+ create-from  Create a ticket based on existing one
+ configure    Configure Jira credentials
+ status       Show current configuration status
+ help         Show help information
+
+Usage: jira-wizard [command] [options]
+
+Quick start:
+ 1. jira-wizard configure
+ 2. jira-wizard create
+ 3. jira-wizard create-from CAM-1106
+
+BANNER;
+
+    echo $banner;
+
+    // If it's a help request, don't run the application
+    if (in_array($argv[1] ?? '', ['--help', '-h', 'help'])) {
+        exit(0);
+    }
+}
+
+// Register commands
+$application->add(new CreateTicketCommand());
+$application->add(new CreateFromCommand());
+$application->add(new ConfigureCommand());
+$application->add(new StatusCommand());
+
+// Set default command
+$application->setDefaultCommand('create');
+
+try {
+    $application->run();
+} catch (Exception $e) {
+    echo "\n❌ Error: " . $e->getMessage() . "\n";
+    exit(1);
+}
