@@ -201,7 +201,7 @@ class CreateTicketCommand extends Command
         $this->showSummary($output, $project, $issueType, $summary, $description, $priority, $assignee, $additionalOptions);
 
         // Confirm creation
-        $confirmQuestion = new Question('🤔 Create this ticket? (y/N): ', 'n');
+        $confirmQuestion = new Question('🤔 Create this ticket? (Y/n): ', 'y');
         $confirm = $this->questionHelper->ask($input, $output, $confirmQuestion);
 
         if (strtolower($confirm) !== 'y') {
