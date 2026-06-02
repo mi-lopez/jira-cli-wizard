@@ -6,6 +6,7 @@ declare(strict_types=1);
 use MiLopez\JiraCliWizard\Commands\ConfigureCommand;
 use MiLopez\JiraCliWizard\Commands\CreateFromCommand;
 use MiLopez\JiraCliWizard\Commands\CreateTicketCommand;
+use MiLopez\JiraCliWizard\Commands\ListCommand;
 use MiLopez\JiraCliWizard\Commands\StatusCommand;
 use Symfony\Component\Console\Application;
 
@@ -36,6 +37,7 @@ if (empty($argv[1]) || in_array($argv[1], ['--help', '-h', 'help'])) {
 Available commands:
  create       Create a new Jira ticket (default)
  create-from  Create a ticket based on existing one
+ list         List Jira resources as JSON (projects, issue-types, priorities, epics)
  configure    Configure Jira credentials
  status       Show current configuration status
  help         Show help information
@@ -60,6 +62,7 @@ BANNER;
 // Register commands
 $application->add(new CreateTicketCommand());
 $application->add(new CreateFromCommand());
+$application->add(new ListCommand());
 $application->add(new ConfigureCommand());
 $application->add(new StatusCommand());
 
