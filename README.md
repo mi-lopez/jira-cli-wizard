@@ -10,9 +10,12 @@ A beautiful, interactive CLI wizard for creating Jira tickets with smart default
 ## ✨ Features
 
 - 🧙‍♂️ **Interactive Wizard**: Step-by-step guided ticket creation
+- 🤖 **Non-Interactive Mode**: Create tickets from scripts and AI agents using flags
 - 🎯 **Smart Defaults**: Suggests active sprints, recent epics, and assignees
 - 🚀 **Quick Creation**: Create tickets based on existing ones
 - 🔄 **Template System**: Copy settings from existing tickets
+- 🔍 **Resource Discovery**: List projects, issue types, priorities, epics, and sprints as JSON
+- 🧪 **Dry Run**: Preview the full payload before creating any ticket
 - 🔒 **Secure**: API token-based authentication
 - 🎨 **Beautiful UI**: Colorful, user-friendly terminal interface
 - ⚡ **Fast Setup**: One-command configuration
@@ -263,6 +266,100 @@ Available priorities:
 ```
 Full interactive wizard for creating tickets from scratch.
 
+### Create Ticket (Non-Interactive)
+
+Skip the wizard entirely by passing flags. Outputs only the issue key to stdout — ideal for scripts and AI agents.
+
+```bash
+./vendor/bin/jira-wizard create \
+  --project=ALDO \
+  --type=Task \
+  --summary="Upgrade bundle X for OroCommerce 6.1" \
+  --description="Check breaking changes in the CHANGELOG" \
+  --epic=ALDO-526 \
+  --labels=upgrade,orocommerce \
+  --priority=High \
+  --sprint=active
+
+# stdout: ALDO-123
+```
+
+**Available flags:**
+
+| Flag | Short | Required | Description |
+|------|-------|----------|-------------|
+| `--project` | `-p` | Yes | Project key (e.g. `ALDO`) |
+| `--type` | `-t` | Yes | Issue type name (e.g. `Task`, `Story`, `Epic`) |
+| `--summary` | `-s` | Yes | Ticket title |
+| `--description` | `-d` | No | Ticket description |
+| `--parent` | | No | Parent/epic key (e.g. `ALDO-10`) |
+| `--epic` | | No | Alias for `--parent` |
+| `--labels` | `-l` | No | Comma-separated labels (e.g. `upgrade,backend`) |
+| `--priority` | | No | Priority name (e.g. `High`, `Medium`, `Low`) |
+| `--sprint` | | No | Sprint ID or `active` to auto-resolve the current sprint |
+| `--dry-run` | | No | Print the JSON payload without creating the ticket |
+
+**Capture the key in a script:**
+```bash
+KEY=$(./vendor/bin/jira-wizard create --project=ALDO --type=Task --summary="..." --no-interaction)
+echo "Created: $KEY"
+```
+
+**Preview before creating (dry-run):**
+```bash
+./vendor/bin/jira-wizard create \
+  --project=ALDO --type=Task --summary="Test" --sprint=active --dry-run
+```
+
+### List Resources as JSON
+
+Discover valid values for flags before scripting or using with an AI agent:
+
+```bash
+# Show available resource types
+./vendor/bin/jira-wizard list
+
+# List all projects
+./vendor/bin/jira-wizard list projects
+
+# List issue types for a project
+./vendor/bin/jira-wizard list issue-types --project=ALDO
+
+# List priorities
+./vendor/bin/jira-wizard list priorities
+
+# List epics for a project
+./vendor/bin/jira-wizard list epics --project=ALDO
+
+# List active sprint for a project
+./vendor/bin/jira-wizard list sprints --project=ALDO
+```
+
+**Example output (`list projects`):**
+```json
+[
+  {"key": "ALDO", "name": "ALDO - B2B project"},
+  {"key": "SYN",  "name": "Synoproject"}
+]
+```
+
+**Typical AI agent workflow:**
+```bash
+# 1. Discover project key
+PROJECT=$(./vendor/bin/jira-wizard list projects | jq -r '.[] | select(.name | test("ALDO")) | .key')
+
+# 2. Discover epic key
+EPIC=$(./vendor/bin/jira-wizard list epics --project=$PROJECT | jq -r '.[0].key')
+
+# 3. Create ticket
+KEY=$(./vendor/bin/jira-wizard create \
+  --project=$PROJECT --type=Task \
+  --summary="Automated task" --epic=$EPIC --sprint=active \
+  --no-interaction)
+
+echo "Created: $KEY"
+```
+
 ### Create from Template
 ```bash
 ./vendor/bin/jira-wizard create-from <ISSUE-KEY>
@@ -296,6 +393,7 @@ Display current configuration and test connection to Jira.
 ### Get Help
 ```bash
 ./vendor/bin/jira-wizard --help
+./vendor/bin/jira-wizard list --help
 ./vendor/bin/jira-wizard create-from --help
 ```
 
@@ -510,23 +608,24 @@ composer phpstan
 
 ```
 ├── bin/
-│   └── jira-wizard                  # CLI entry point
+│   └── jira-wizard                              # CLI entry point
 ├── src/
 │   ├── Commands/
-│   │   ├── CreateTicketCommand.php  # Main wizard command
-│   │   ├── CreateFromCommand.php    # Template creation command
-│   │   ├── ConfigureCommand.php     # Configuration command
-│   │   └── StatusCommand.php        # Status command
+│   │   ├── CreateTicketCommand.php              # Interactive wizard + non-interactive mode
+│   │   ├── CreateFromCommand.php                # Template creation command
+│   │   ├── ListCommand.php                      # JSON resource listing
+│   │   ├── ConfigureCommand.php                 # Configuration command
+│   │   └── StatusCommand.php                    # Status command
 │   ├── Helpers/
-│   │   └── ConsoleHelper.php        # Pretty console output
-│   ├── JiraApiClient.php            # Jira API integration
-│   ├── ConfigManager.php            # Configuration management
-│   └── Installer.php               # Post-install setup
-├── tests/                           # PHPUnit tests
+│   │   └── ConsoleHelper.php                    # Pretty console output
+│   ├── JiraApiClient.php                        # Jira API integration
+│   ├── ConfigManager.php                        # Configuration management
+│   └── Installer.php                            # Post-install setup
+├── tests/                                       # PHPUnit tests
 ├── .github/
-│   └── workflows/                   # GitHub Actions CI
-├── composer.json                    # Package configuration
-└── README.md                        # This file
+│   └── workflows/                               # GitHub Actions CI
+├── composer.json                                # Package configuration
+└── README.md                                    # This file
 ```
 
 ### Running Tests
@@ -630,6 +729,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contributors**: All the amazing people who help improve this tool
 
 ## 📈 Changelog
+
+### [1.1.0] - 2026-06-02
+- 🤖 **NEW**: Non-interactive mode for `create` — pass all fields as flags, get issue key on stdout
+- 🧪 **NEW**: `--dry-run` flag — preview the full JSON payload without creating any ticket
+- 🔍 **NEW**: `list` command — outputs projects, issue-types, priorities, epics, and sprints as JSON
+- 🏃 **NEW**: `--sprint=active` — auto-resolves the current active sprint at runtime
+- 🐛 **FIX**: `getEpics()` migrated from deprecated `/rest/api/3/search` to `/rest/api/3/search/jql`
 
 ### [1.0.0] - 2025-07-03
 - 🎉 Initial release

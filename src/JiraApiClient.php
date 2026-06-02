@@ -127,7 +127,7 @@ class JiraApiClient
         try {
             $jql = "project = {$projectKey} AND type = Epic ORDER BY updated DESC";
 
-            $response = $this->client->get('/rest/api/3/search', [
+            $response = $this->client->get('/rest/api/3/search/jql', [
                 'query' => [
                     'jql' => $jql,
                     'fields' => 'key,summary,status',

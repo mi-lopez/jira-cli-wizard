@@ -10,6 +10,7 @@ use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
@@ -33,7 +34,17 @@ class CreateTicketCommand extends Command
         $this
             ->setName('create')
             ->setDescription('Create a new Jira ticket using the interactive wizard')
-            ->setHelp('This command guides you through creating a Jira ticket with smart defaults and suggestions.');
+            ->setHelp('This command guides you through creating a Jira ticket with smart defaults and suggestions.')
+            ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project key (e.g. ALDO)')
+            ->addOption('type', 't', InputOption::VALUE_REQUIRED, 'Issue type (e.g. Task, Story, Epic)')
+            ->addOption('summary', 's', InputOption::VALUE_REQUIRED, 'Ticket summary/title')
+            ->addOption('description', 'd', InputOption::VALUE_OPTIONAL, 'Ticket description', '')
+            ->addOption('parent', null, InputOption::VALUE_REQUIRED, 'Parent issue or epic key (e.g. ALDO-10)')
+            ->addOption('epic', null, InputOption::VALUE_REQUIRED, 'Epic key to link (alias for --parent)')
+            ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels (e.g. backend,upgrade)')
+            ->addOption('priority', null, InputOption::VALUE_REQUIRED, 'Priority name (e.g. High, Medium, Low)')
+            ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active" to use the current active sprint')
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without creating the ticket');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -64,7 +75,14 @@ class CreateTicketCommand extends Command
 
         $this->jiraClient = new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
 
-        // Test connection
+        $isDryRun = (bool) $input->getOption('dry-run');
+        $isNonInteractive = $input->getOption('no-interaction') || $this->hasRequiredFlags($input);
+
+        if ($isNonInteractive) {
+            return $this->executeNonInteractive($input, $output, $isDryRun);
+        }
+
+        // Test connection only for interactive mode (non-interactive tests inline)
         $this->consoleHelper->info('🔗 Testing Jira connection...');
         if (!$this->jiraClient->testConnection()) {
             $this->consoleHelper->error('❌ Failed to connect to Jira. Please check your configuration.');
@@ -114,6 +132,122 @@ class CreateTicketCommand extends Command
 
             return Command::FAILURE;
         }
+    }
+
+    private function hasRequiredFlags(InputInterface $input): bool
+    {
+        return $input->getOption('project') !== null
+            && $input->getOption('type') !== null
+            && $input->getOption('summary') !== null;
+    }
+
+    private function executeNonInteractive(InputInterface $input, OutputInterface $output, bool $isDryRun): int
+    {
+        $projectKey = $input->getOption('project');
+        $typeName = $input->getOption('type');
+        $summary = $input->getOption('summary');
+
+        if (!$projectKey || !$typeName || !$summary) {
+            $output->writeln('<error>Non-interactive mode requires --project, --type, and --summary.</error>');
+
+            return Command::FAILURE;
+        }
+
+        try {
+            $sprintId = $this->resolveSprintId($input, $projectKey);
+            $payload = $this->buildNonInteractivePayload($input, $projectKey, $typeName, $summary);
+
+            if ($isDryRun) {
+                $dryRunPayload = $payload;
+                if ($sprintId !== null) {
+                    $dryRunPayload['_sprint_id'] = $sprintId;
+                }
+                $output->writeln(json_encode($dryRunPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+                return Command::SUCCESS;
+            }
+
+            if (!$this->jiraClient->testConnection()) {
+                $output->writeln('<error>Failed to connect to Jira. Please check your configuration.</error>');
+
+                return Command::FAILURE;
+            }
+
+            $result = $this->jiraClient->createIssue($payload);
+            $issueKey = $result['key'];
+
+            if ($sprintId !== null) {
+                $this->jiraClient->addIssueToSprint($issueKey, $sprintId);
+            }
+
+            $output->write($issueKey);
+
+            return Command::SUCCESS;
+        } catch (\Exception $e) {
+            $output->writeln('<error>' . $e->getMessage() . '</error>');
+
+            return Command::FAILURE;
+        }
+    }
+
+    private function resolveSprintId(InputInterface $input, string $projectKey): ?int
+    {
+        $sprint = $input->getOption('sprint');
+
+        if ($sprint === null) {
+            return null;
+        }
+
+        if (strtolower($sprint) === 'active') {
+            $activeSprint = $this->jiraClient->getActiveSprint($projectKey);
+
+            return $activeSprint ? (int) $activeSprint['id'] : null;
+        }
+
+        return (int) $sprint;
+    }
+
+    public function buildNonInteractivePayload(InputInterface $input, string $projectKey, string $typeName, string $summary): array
+    {
+        $description = (string) $input->getOption('description');
+
+        $payload = [
+            'fields' => [
+                'project' => ['key' => strtoupper($projectKey)],
+                'issuetype' => ['name' => $typeName],
+                'summary' => $summary,
+            ],
+        ];
+
+        if ($description !== '') {
+            $payload['fields']['description'] = [
+                'type' => 'doc',
+                'version' => 1,
+                'content' => [
+                    [
+                        'type' => 'paragraph',
+                        'content' => [['type' => 'text', 'text' => $description]],
+                    ],
+                ],
+            ];
+        }
+
+        $epicKey = $input->getOption('epic') ?? $input->getOption('parent');
+        if ($epicKey !== null) {
+            $payload['fields']['parent'] = ['key' => strtoupper($epicKey)];
+        }
+
+        $priority = $input->getOption('priority');
+        if ($priority !== null) {
+            $payload['fields']['priority'] = ['name' => $priority];
+        }
+
+        $labelsRaw = $input->getOption('labels');
+        if ($labelsRaw !== null && $labelsRaw !== '') {
+            $payload['fields']['labels'] = array_values(array_filter(array_map('trim', explode(',', $labelsRaw))));
+        }
+
+        return $payload;
     }
 
     private function runWizard(InputInterface $input, OutputInterface $output): ?array
