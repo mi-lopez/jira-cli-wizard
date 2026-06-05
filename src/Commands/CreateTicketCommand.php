@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
+use MiLopez\JiraCliWizard\Helpers\AdfHelper;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Command\Command;
@@ -220,16 +221,7 @@ class CreateTicketCommand extends Command
         ];
 
         if ($description !== '') {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = AdfHelper::descriptionToDoc($description);
         }
 
         $epicKey = $input->getOption('epic') ?? $input->getOption('parent');
@@ -295,21 +287,7 @@ class CreateTicketCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $issueType['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => AdfHelper::descriptionToDoc($description),
             ],
         ];
 
