@@ -6,6 +6,7 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
@@ -220,16 +221,7 @@ class CreateTicketCommand extends Command
         ];
 
         if ($description !== '') {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = MarkdownToAdf::convert($description);
         }
 
         $epicKey = $input->getOption('epic') ?? $input->getOption('parent');
@@ -295,21 +287,7 @@ class CreateTicketCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $issueType['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => MarkdownToAdf::convert($description),
             ],
         ];
 
