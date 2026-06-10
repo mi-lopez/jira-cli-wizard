@@ -44,6 +44,7 @@ class CreateTicketCommand extends Command
             ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels (e.g. backend,upgrade)')
             ->addOption('priority', null, InputOption::VALUE_REQUIRED, 'Priority name (e.g. High, Medium, Low)')
             ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active" to use the current active sprint')
+            ->addOption('attachment', 'a', InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without creating the ticket');
     }
 
@@ -97,12 +98,19 @@ class CreateTicketCommand extends Command
             // Start the wizard
             $this->consoleHelper->title('🎯 Jira Ticket Creation Wizard');
 
+            $attachments = $input->getOption('attachment') ?? [];
             $ticketData = $this->runWizard($input, $output);
 
             if (!$ticketData) {
                 $this->consoleHelper->warning('Ticket creation cancelled.');
 
                 return Command::SUCCESS;
+            }
+
+            // Merge wizard attachments if any
+            if (isset($ticketData['_attachments'])) {
+                $attachments = array_merge($attachments, $ticketData['_attachments']);
+                unset($ticketData['_attachments']);
             }
 
             // Create the ticket
@@ -123,6 +131,20 @@ class CreateTicketCommand extends Command
                     $this->consoleHelper->success('✅ Added to sprint!');
                 } else {
                     $this->consoleHelper->warning('⚠️  Could not add to sprint (ticket created successfully)');
+                }
+            }
+
+            // Upload attachments if any
+            if (!empty($attachments)) {
+                $this->consoleHelper->info('📎 Uploading attachments...');
+                foreach ($attachments as $filePath) {
+                    try {
+                        $this->consoleHelper->info("  Uploading " . basename($filePath) . "...");
+                        $this->jiraClient->uploadAttachment($issueKey, $filePath);
+                        $this->consoleHelper->success("  ✅ Uploaded: " . basename($filePath));
+                    } catch (\Exception $e) {
+                        $this->consoleHelper->warning("  ⚠️  Failed to upload " . basename($filePath) . ": " . $e->getMessage());
+                    }
                 }
             }
 
@@ -154,6 +176,15 @@ class CreateTicketCommand extends Command
         }
 
         try {
+            $attachments = $input->getOption('attachment') ?? [];
+            foreach ($attachments as $filePath) {
+                if (!file_exists($filePath)) {
+                    $output->writeln("<error>Attachment file not found: {$filePath}</error>");
+
+                    return Command::FAILURE;
+                }
+            }
+
             $sprintId = $this->resolveSprintId($input, $projectKey);
             $payload = $this->buildNonInteractivePayload($input, $projectKey, $typeName, $summary);
 
@@ -161,6 +192,9 @@ class CreateTicketCommand extends Command
                 $dryRunPayload = $payload;
                 if ($sprintId !== null) {
                     $dryRunPayload['_sprint_id'] = $sprintId;
+                }
+                if (!empty($attachments)) {
+                    $dryRunPayload['_attachments'] = $attachments;
                 }
                 $output->writeln(json_encode($dryRunPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
@@ -178,6 +212,10 @@ class CreateTicketCommand extends Command
 
             if ($sprintId !== null) {
                 $this->jiraClient->addIssueToSprint($issueKey, $sprintId);
+            }
+
+            foreach ($attachments as $filePath) {
+                $this->jiraClient->uploadAttachment($issueKey, $filePath);
             }
 
             $output->write($issueKey);
@@ -253,41 +291,45 @@ class CreateTicketCommand extends Command
     private function runWizard(InputInterface $input, OutputInterface $output): ?array
     {
         // Step 1: Select Project
-        $this->consoleHelper->step('1/7', 'Select Project');
+        $this->consoleHelper->step('1/8', 'Select Project');
         $project = $this->selectProject($input, $output);
         if (!$project) {
             return null;
         }
 
         // Step 2: Select Issue Type
-        $this->consoleHelper->step('2/7', 'Select Issue Type');
+        $this->consoleHelper->step('2/8', 'Select Issue Type');
         $issueType = $this->selectIssueType($input, $output, $project['key']);
         if (!$issueType) {
             return null;
         }
 
         // Step 3: Enter Summary
-        $this->consoleHelper->step('3/7', 'Enter Summary');
+        $this->consoleHelper->step('3/8', 'Enter Summary');
         $summary = $this->enterSummary($input, $output);
         if (!$summary) {
             return null;
         }
 
         // Step 4: Enter Description
-        $this->consoleHelper->step('4/7', 'Enter Description');
+        $this->consoleHelper->step('4/8', 'Enter Description');
         $description = $this->enterDescription($input, $output);
 
         // Step 5: Select Priority
-        $this->consoleHelper->step('5/7', 'Select Priority');
+        $this->consoleHelper->step('5/8', 'Select Priority');
         $priority = $this->selectPriority($input, $output);
 
         // Step 6: Select Assignee
-        $this->consoleHelper->step('6/7', 'Select Assignee');
+        $this->consoleHelper->step('6/8', 'Select Assignee');
         $assignee = $this->selectAssignee($input, $output, $project['key']);
 
         // Step 7: Additional Options
-        $this->consoleHelper->step('7/7', 'Additional Options');
+        $this->consoleHelper->step('7/8', 'Additional Options');
         $additionalOptions = $this->selectAdditionalOptions($input, $output, $project['key']);
+
+        // Step 8: Add Attachments
+        $this->consoleHelper->step('8/8', 'Add Attachments');
+        $attachments = $this->enterAttachments($input, $output);
 
         // Build issue data
         $issueData = [
@@ -331,8 +373,13 @@ class CreateTicketCommand extends Command
             $issueData['sprint_id'] = $additionalOptions['sprint']['id'];
         }
 
+        // Store attachments separately for later processing
+        if (!empty($attachments)) {
+            $issueData['_attachments'] = $attachments;
+        }
+
         // Show summary
-        $this->showSummary($output, $project, $issueType, $summary, $description, $priority, $assignee, $additionalOptions);
+        $this->showSummary($output, $project, $issueType, $summary, $description, $priority, $assignee, $additionalOptions, $attachments);
 
         // Confirm creation
         $confirmQuestion = new Question('🤔 Create this ticket? (Y/n): ', 'y');
@@ -720,7 +767,7 @@ class CreateTicketCommand extends Command
         return $options;
     }
 
-    private function showSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, array $additionalOptions): void
+    private function showSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, array $additionalOptions, array $attachments = []): void
     {
         $this->consoleHelper->separator();
         $this->consoleHelper->title('📋 Ticket Summary');
@@ -749,6 +796,39 @@ class CreateTicketCommand extends Command
             $output->writeln("📚 <info>Epic:</info> {$additionalOptions['epic']['key']}");
         }
 
+        if (!empty($attachments)) {
+            $output->writeln("📎 <info>Attachments:</info>");
+            foreach ($attachments as $filePath) {
+                $output->writeln("  - " . basename($filePath));
+            }
+        }
+
         $this->consoleHelper->separator();
+    }
+
+    private function enterAttachments(InputInterface $input, OutputInterface $output): array
+    {
+        $attachments = [];
+        $this->consoleHelper->info('📎 You can upload multiple files or images to the ticket.');
+
+        while (true) {
+            $question = new Question('Enter path to attachment file (or press enter to skip/finish): ', '');
+            $filePath = $this->questionHelper->ask($input, $output, $question);
+
+            if ($filePath === null || trim($filePath) === '') {
+                break;
+            }
+
+            $filePath = trim($filePath);
+            if (!file_exists($filePath)) {
+                $this->consoleHelper->warning("❌ File not found at '{$filePath}'. Please enter a valid path.");
+                continue;
+            }
+
+            $attachments[] = $filePath;
+            $this->consoleHelper->success("✅ Added attachment: " . basename($filePath));
+        }
+
+        return $attachments;
     }
 }

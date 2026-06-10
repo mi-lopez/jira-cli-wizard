@@ -45,6 +45,12 @@ class CreateFromCommand extends Command
                 InputOption::VALUE_OPTIONAL,
                 'Override the project (use different project than original)'
             )
+            ->addOption(
+                'attachment',
+                'a',
+                InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED,
+                'Path to attachment files/images to upload'
+            )
             ->setHelp(
                 'This command creates a new ticket using an existing ticket as a template.' . PHP_EOL .
                 'It will copy the issue type, priority, assignee, epic, and sprint from the original ticket.' . PHP_EOL .
@@ -123,6 +129,12 @@ class CreateFromCommand extends Command
                 return Command::SUCCESS;
             }
 
+            $attachments = $input->getOption('attachment') ?? [];
+            if (isset($ticketData['_attachments'])) {
+                $attachments = array_merge($attachments, $ticketData['_attachments']);
+                unset($ticketData['_attachments']);
+            }
+
             // Create the ticket
             $this->consoleHelper->info('🚀 Creating ticket...');
             $result = $this->jiraClient->createIssue($ticketData);
@@ -141,6 +153,20 @@ class CreateFromCommand extends Command
                     $this->consoleHelper->success('✅ Added to sprint!');
                 } else {
                     $this->consoleHelper->warning('⚠️  Could not add to sprint (ticket created successfully)');
+                }
+            }
+
+            // Upload attachments if any
+            if (!empty($attachments)) {
+                $this->consoleHelper->info('📎 Uploading attachments...');
+                foreach ($attachments as $filePath) {
+                    try {
+                        $this->consoleHelper->info("  Uploading " . basename($filePath) . "...");
+                        $this->jiraClient->uploadAttachment($newIssueKey, $filePath);
+                        $this->consoleHelper->success("  ✅ Uploaded: " . basename($filePath));
+                    } catch (\Exception $e) {
+                        $this->consoleHelper->warning("  ⚠️  Failed to upload " . basename($filePath) . ": " . $e->getMessage());
+                    }
                 }
             }
 
@@ -306,8 +332,36 @@ class CreateFromCommand extends Command
             $issueData['sprint_id'] = $sprint['id'];
         }
 
+        // Ask for attachments
+        $attachments = [];
+        if (!$input->getOption('no-interaction')) {
+            $this->consoleHelper->separator();
+            $this->consoleHelper->info('📎 Attachment Options');
+            while (true) {
+                $question = new Question('Enter path to attachment file (or press enter to skip/finish): ', '');
+                $filePath = $this->questionHelper->ask($input, $output, $question);
+
+                if ($filePath === null || trim($filePath) === '') {
+                    break;
+                }
+
+                $filePath = trim($filePath);
+                if (!file_exists($filePath)) {
+                    $this->consoleHelper->warning("❌ File not found at '{$filePath}'. Please enter a valid path.");
+                    continue;
+                }
+
+                $attachments[] = $filePath;
+                $this->consoleHelper->success("✅ Added attachment: " . basename($filePath));
+            }
+        }
+
+        if (!empty($attachments)) {
+            $issueData['_attachments'] = $attachments;
+        }
+
         // Show summary
-        $this->showNewTicketSummary($output, $project, $originalFields['issuetype'], $summary, $description, $priority, $assignee, $epic, $sprint);
+        $this->showNewTicketSummary($output, $project, $originalFields['issuetype'], $summary, $description, $priority, $assignee, $epic, $sprint, $attachments);
 
         // Confirm creation
         $question = new Question('🤔 Create this ticket? (y/N): ', 'n');
@@ -320,7 +374,7 @@ class CreateFromCommand extends Command
         return $issueData;
     }
 
-    private function showNewTicketSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, ?array $epic, ?array $sprint): void
+    private function showNewTicketSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, ?array $epic, ?array $sprint, array $attachments = []): void
     {
         $this->consoleHelper->separator();
         $this->consoleHelper->title('📋 New Ticket Summary');
@@ -347,6 +401,13 @@ class CreateFromCommand extends Command
 
         if ($epic) {
             $output->writeln("📚 <info>Epic:</info> {$epic['key']}");
+        }
+
+        if (!empty($attachments)) {
+            $output->writeln("📎 <info>Attachments:</info>");
+            foreach ($attachments as $filePath) {
+                $output->writeln("  - " . basename($filePath));
+            }
         }
 
         $this->consoleHelper->separator();
