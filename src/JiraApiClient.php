@@ -244,4 +244,21 @@ class JiraApiClient
             return false;
         }
     }
+
+    /**
+     * Update an existing issue.
+     */
+    public function updateIssue(string $issueKey, array $issueData): bool
+    {
+        try {
+            $response = $this->client->put("/rest/api/3/issue/{$issueKey}", [
+                'json' => $issueData,
+            ]);
+
+            return $response->getStatusCode() === 204;
+        } catch (RequestException $e) {
+            $errorBody = $e->getResponse() ? $e->getResponse()->getBody()->getContents() : '';
+            throw new \Exception("Failed to update issue {$issueKey}: " . $e->getMessage() . "\nResponse: " . $errorBody);
+        }
+    }
 }
