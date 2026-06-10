@@ -46,6 +46,7 @@ class UpdateCommand extends Command
             ->addOption('assignee', null, InputOption::VALUE_REQUIRED, 'New assignee (displayName, email, accountId, or "unassigned")')
             ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels')
             ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active"')
+            ->addOption('attachment', 'a', InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without updating the ticket');
     }
 
@@ -96,14 +97,26 @@ class UpdateCommand extends Command
         $isNonInteractive = $input->getOption('no-interaction') || $this->hasUpdateOptions($input);
 
         try {
+            $attachments = $input->getOption('attachment') ?? [];
             if ($isNonInteractive) {
                 $payload = $this->buildNonInteractivePayload($input, $projectKey);
+                foreach ($attachments as $filePath) {
+                    if (!file_exists($filePath)) {
+                        $this->consoleHelper->error("❌ Attachment file not found: {$filePath}");
+
+                        return Command::FAILURE;
+                    }
+                }
             } else {
                 $payload = $this->runInteractiveWizard($input, $output, $issue, $projectKey);
+                if (isset($payload['_attachments'])) {
+                    $attachments = array_merge($attachments, $payload['_attachments']);
+                    unset($payload['_attachments']);
+                }
             }
 
-            if (empty($payload['fields']) && empty($payload['sprint_id'])) {
-                $this->consoleHelper->warning('No fields to update.');
+            if (empty($payload['fields']) && empty($payload['sprint_id']) && empty($attachments)) {
+                $this->consoleHelper->warning('No fields or attachments to update.');
 
                 return Command::SUCCESS;
             }
@@ -117,6 +130,9 @@ class UpdateCommand extends Command
                 $dryRunPayload = $payload;
                 if ($sprintId) {
                     $dryRunPayload['_sprint_id'] = $sprintId;
+                }
+                if (!empty($attachments)) {
+                    $dryRunPayload['_attachments'] = $attachments;
                 }
                 $output->writeln(json_encode($dryRunPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 
@@ -135,6 +151,20 @@ class UpdateCommand extends Command
                     $this->consoleHelper->success('✅ Added to sprint successfully!');
                 } else {
                     $this->consoleHelper->warning('⚠️ Could not add to sprint.');
+                }
+            }
+
+            // Upload attachments if any
+            if (!empty($attachments)) {
+                $this->consoleHelper->info('📎 Uploading attachments...');
+                foreach ($attachments as $filePath) {
+                    try {
+                        $this->consoleHelper->info("  Uploading " . basename($filePath) . "...");
+                        $this->jiraClient->uploadAttachment($issueKey, $filePath);
+                        $this->consoleHelper->success("  ✅ Uploaded: " . basename($filePath));
+                    } catch (\Exception $e) {
+                        $this->consoleHelper->warning("  ⚠️  Failed to upload " . basename($filePath) . ": " . $e->getMessage());
+                    }
                 }
             }
 
@@ -399,6 +429,32 @@ class UpdateCommand extends Command
             if (strtolower($addToSprint) === 'y') {
                 $payload['sprint_id'] = (int) $sprint['id'];
             }
+        }
+
+        // 9. Attachments
+        $attachments = [];
+        $this->consoleHelper->separator();
+        $this->consoleHelper->info('📎 Attachment Options');
+        while (true) {
+            $question = new Question('Enter path to attachment file (or press enter to skip/finish): ', '');
+            $filePath = $this->questionHelper->ask($input, $output, $question);
+
+            if ($filePath === null || trim($filePath) === '') {
+                break;
+            }
+
+            $filePath = trim($filePath);
+            if (!file_exists($filePath)) {
+                $this->consoleHelper->warning("❌ File not found at '{$filePath}'. Please enter a valid path.");
+                continue;
+            }
+
+            $attachments[] = $filePath;
+            $this->consoleHelper->success("✅ Added attachment: " . basename($filePath));
+        }
+
+        if (!empty($attachments)) {
+            $payload['_attachments'] = $attachments;
         }
 
         return $payload;

@@ -209,6 +209,37 @@ class JiraApiClient
     }
 
     /**
+     * Upload an attachment to an issue.
+     */
+    public function uploadAttachment(string $issueKey, string $filePath): array
+    {
+        try {
+            if (!file_exists($filePath)) {
+                throw new \InvalidArgumentException("File not found: {$filePath}");
+            }
+
+            $response = $this->client->post("/rest/api/3/issue/{$issueKey}/attachments", [
+                'headers' => [
+                    'X-Atlassian-Token' => 'no-check',
+                    'Content-Type' => null,
+                ],
+                'multipart' => [
+                    [
+                        'name' => 'file',
+                        'contents' => fopen($filePath, 'r'),
+                        'filename' => basename($filePath),
+                    ]
+                ],
+            ]);
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            $errorBody = $e->getResponse() ? $e->getResponse()->getBody()->getContents() : '';
+            throw new \Exception("Failed to upload attachment to {$issueKey}: " . $e->getMessage() . "\nResponse: " . $errorBody);
+        }
+    }
+
+    /**
      * Get issue by key.
      */
     public function getIssue(string $issueKey): ?array
