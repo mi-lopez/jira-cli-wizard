@@ -44,6 +44,7 @@ class CreateTicketCommand extends Command
             ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels (e.g. backend,upgrade)')
             ->addOption('priority', null, InputOption::VALUE_REQUIRED, 'Priority name (e.g. High, Medium, Low)')
             ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active" to use the current active sprint')
+            ->addOption('assignee', 'a', InputOption::VALUE_REQUIRED, 'Assignee username, email, or "me"')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without creating the ticket');
     }
 
@@ -207,6 +208,58 @@ class CreateTicketCommand extends Command
         return (int) $sprint;
     }
 
+    private function resolveAssigneeId(string $assigneeQuery, string $projectKey): ?string
+    {
+        if (strtolower($assigneeQuery) === 'me') {
+            $assigneeQuery = $this->config->get('jira_email');
+        }
+
+        $users = $this->jiraClient->getAssignableUsers($projectKey);
+
+        if (empty($users)) {
+            throw new \InvalidArgumentException('No assignable users found for this project.');
+        }
+
+        // 1. Find by exact display name or email (case insensitive)
+        foreach ($users as $user) {
+            $displayName = $user['displayName'] ?? '';
+            $email = $user['emailAddress'] ?? '';
+
+            if (strtolower($displayName) === strtolower($assigneeQuery) ||
+                strtolower($email) === strtolower($assigneeQuery)) {
+                return $user['accountId'];
+            }
+        }
+
+        // 2. Try partial matching
+        $partialMatches = [];
+        foreach ($users as $user) {
+            $displayName = $user['displayName'] ?? '';
+            $email = $user['emailAddress'] ?? '';
+
+            if (stripos($displayName, $assigneeQuery) !== false ||
+                stripos($email, $assigneeQuery) !== false) {
+                $partialMatches[] = $user;
+            }
+        }
+
+        if (count($partialMatches) === 1) {
+            return $partialMatches[0]['accountId'];
+        } elseif (count($partialMatches) > 1) {
+            $names = array_map(fn ($user) => $user['displayName'] ?? $user['emailAddress'] ?? $user['accountId'], $partialMatches);
+            throw new \InvalidArgumentException("Multiple assignees found matching '{$assigneeQuery}': " . implode(', ', $names));
+        }
+
+        // 3. Match by accountId directly
+        foreach ($users as $user) {
+            if ($user['accountId'] === $assigneeQuery) {
+                return $user['accountId'];
+            }
+        }
+
+        throw new \InvalidArgumentException("No assignee found matching '{$assigneeQuery}'.");
+    }
+
     public function buildNonInteractivePayload(InputInterface $input, string $projectKey, string $typeName, string $summary): array
     {
         $description = (string) $input->getOption('description');
@@ -245,6 +298,16 @@ class CreateTicketCommand extends Command
         $labelsRaw = $input->getOption('labels');
         if ($labelsRaw !== null && $labelsRaw !== '') {
             $payload['fields']['labels'] = array_values(array_filter(array_map('trim', explode(',', $labelsRaw))));
+        }
+
+        if ($input->hasOption('assignee')) {
+            $assigneeQuery = $input->getOption('assignee');
+            if ($assigneeQuery !== null && $assigneeQuery !== '' && isset($this->jiraClient)) {
+                $accountId = $this->resolveAssigneeId($assigneeQuery, $projectKey);
+                if ($accountId !== null) {
+                    $payload['fields']['assignee'] = ['accountId' => $accountId];
+                }
+            }
         }
 
         return $payload;
