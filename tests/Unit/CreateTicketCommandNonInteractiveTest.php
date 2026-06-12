@@ -35,6 +35,7 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
         $this->assertTrue($definition->hasOption('labels'));
         $this->assertTrue($definition->hasOption('priority'));
         $this->assertTrue($definition->hasOption('dry-run'));
+        $this->assertTrue($definition->hasOption('assignee'));
     }
 
     public function testBuildNonInteractivePayloadMinimal(): void
@@ -54,6 +55,21 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
         $this->assertArrayNotHasKey('parent', $payload['fields']);
         $this->assertArrayNotHasKey('priority', $payload['fields']);
         $this->assertArrayNotHasKey('labels', $payload['fields']);
+    }
+
+    public function testBuildNonInteractivePayloadWithAssigneeNoClientDoesNotCrash(): void
+    {
+        $input = new ArrayInput([
+            '--project' => 'ALDO',
+            '--type' => 'Task',
+            '--summary' => 'Test ticket',
+            '--assignee' => 'assignee@example.com',
+        ], $this->command->getDefinition());
+
+        $payload = $this->command->buildNonInteractivePayload($input, 'ALDO', 'Task', 'Test ticket');
+
+        $this->assertSame('ALDO', $payload['fields']['project']['key']);
+        $this->assertArrayNotHasKey('assignee', $payload['fields']);
     }
 
     public function testBuildNonInteractivePayloadProjectKeyIsUppercased(): void
