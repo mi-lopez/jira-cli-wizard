@@ -77,6 +77,15 @@ class CreateTicketCommand extends Command
         $this->jiraClient = new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
 
         $isDryRun = (bool) $input->getOption('dry-run');
+
+        // --dry-run must never silently fall through to an interactive path that
+        // could create a ticket. Require the non-interactive flags up front.
+        if ($isDryRun && !$this->hasRequiredFlags($input)) {
+            $this->consoleHelper->error('--dry-run requires --project, --type and --summary.');
+
+            return Command::FAILURE;
+        }
+
         $isNonInteractive = $input->getOption('no-interaction') || $this->hasRequiredFlags($input);
 
         if ($isNonInteractive) {

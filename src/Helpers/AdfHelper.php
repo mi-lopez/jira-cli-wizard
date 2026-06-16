@@ -29,6 +29,16 @@ class AdfHelper
                 continue;
             }
 
+            if (preg_match('/^(#{1,6})\s+(.+)$/', $line, $matches) === 1) {
+                self::flushBulletItems($content, $bulletItems);
+                $content[] = [
+                    'type' => 'heading',
+                    'attrs' => ['level' => strlen($matches[1])],
+                    'content' => self::parseInline($matches[2]),
+                ];
+                continue;
+            }
+
             if (preg_match('/^[-*]\s+(.+)$/', $line, $matches) === 1) {
                 $bulletItems[] = [
                     'type' => 'listItem',

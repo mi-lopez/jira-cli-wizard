@@ -209,6 +209,39 @@ class JiraApiClient
     }
 
     /**
+     * Update an existing issue (partial update of fields).
+     */
+    public function updateIssue(string $issueKey, array $fields): bool
+    {
+        try {
+            $this->client->put("/rest/api/3/issue/{$issueKey}", [
+                'json' => ['fields' => $fields],
+            ]);
+
+            return true;
+        } catch (RequestException $e) {
+            $errorBody = $e->getResponse() ? $e->getResponse()->getBody()->getContents() : '';
+            throw new \Exception('Failed to update issue: ' . $e->getMessage() . "\nResponse: " . $errorBody);
+        }
+    }
+
+    /**
+     * Add a comment to an issue. Expects an ADF doc as the comment body.
+     */
+    public function addComment(string $issueKey, array $adfDoc): bool
+    {
+        try {
+            $this->client->post("/rest/api/3/issue/{$issueKey}/comment", [
+                'json' => ['body' => $adfDoc],
+            ]);
+
+            return true;
+        } catch (RequestException $e) {
+            return false;
+        }
+    }
+
+    /**
      * Get issue by key.
      */
     public function getIssue(string $issueKey): ?array
