@@ -730,6 +730,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📈 Changelog
 
+### [Unreleased]
+- **FIX**: Convert simple Markdown-style Description text to Jira ADF in `create` and `create-from`, including `**bold**` text and bullet lists. See `docs/description-formatting.md`.
+
 ### [1.1.0] - 2026-06-02
 - 🤖 **NEW**: Non-interactive mode for `create` — pass all fields as flags, get issue key on stdout
 - 🧪 **NEW**: `--dry-run` flag — preview the full JSON payload without creating any ticket

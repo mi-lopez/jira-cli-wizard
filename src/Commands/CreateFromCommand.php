@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
+use MiLopez\JiraCliWizard\Helpers\AdfHelper;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Command\Command;
@@ -235,6 +236,7 @@ class CreateFromCommand extends Command
         // Get new description
         $question = new Question('📄 Enter description (optional): ', '');
         $description = $this->questionHelper->ask($input, $output, $question) ?? '';
+        $labels = $this->enterLabels($input, $output, $originalFields['labels'] ?? []);
 
         // Ask if user wants to modify copied settings
         $question = new Question('🔧 Do you want to modify the copied settings (assignee, priority, etc.)? (y/N): ', 'n');
@@ -270,21 +272,7 @@ class CreateFromCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $originalFields['issuetype']['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => AdfHelper::descriptionToDoc($description),
             ],
         ];
 
@@ -301,13 +289,17 @@ class CreateFromCommand extends Command
             $issueData['fields']['parent'] = ['key' => $epic['key']];
         }
 
+        if (!empty($labels)) {
+            $issueData['fields']['labels'] = $labels;
+        }
+
         // Store sprint ID separately for later processing
         if ($sprint) {
             $issueData['sprint_id'] = $sprint['id'];
         }
 
         // Show summary
-        $this->showNewTicketSummary($output, $project, $originalFields['issuetype'], $summary, $description, $priority, $assignee, $epic, $sprint);
+        $this->showNewTicketSummary($output, $project, $originalFields['issuetype'], $summary, $description, $priority, $assignee, $epic, $sprint, $labels);
 
         // Confirm creation
         $question = new Question('🤔 Create this ticket? (y/N): ', 'n');
@@ -320,7 +312,7 @@ class CreateFromCommand extends Command
         return $issueData;
     }
 
-    private function showNewTicketSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, ?array $epic, ?array $sprint): void
+    private function showNewTicketSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, ?array $epic, ?array $sprint, array $labels): void
     {
         $this->consoleHelper->separator();
         $this->consoleHelper->title('📋 New Ticket Summary');
@@ -349,7 +341,27 @@ class CreateFromCommand extends Command
             $output->writeln("📚 <info>Epic:</info> {$epic['key']}");
         }
 
+        if (!empty($labels)) {
+            $output->writeln('<info>Labels:</info> ' . implode(', ', $labels));
+        }
+
         $this->consoleHelper->separator();
+    }
+
+    private function enterLabels(InputInterface $input, OutputInterface $output, array $currentLabels): array
+    {
+        $default = implode(', ', $currentLabels);
+        $question = new Question('Enter labels (comma-separated, optional): ', $default);
+
+        return $this->parseLabels((string) ($this->questionHelper->ask($input, $output, $question) ?? ''));
+    }
+
+    private function parseLabels(string $labelsRaw): array
+    {
+        $labels = array_map('trim', explode(',', $labelsRaw));
+        $labels = array_filter($labels, static fn (string $label): bool => $label !== '');
+
+        return array_values(array_unique($labels));
     }
 
     // Helper methods (simplified versions)

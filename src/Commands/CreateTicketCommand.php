@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
+use MiLopez\JiraCliWizard\Helpers\AdfHelper;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Command\Command;
@@ -76,6 +77,15 @@ class CreateTicketCommand extends Command
         $this->jiraClient = new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
 
         $isDryRun = (bool) $input->getOption('dry-run');
+
+        // --dry-run must never silently fall through to an interactive path that
+        // could create a ticket. Require the non-interactive flags up front.
+        if ($isDryRun && !$this->hasRequiredFlags($input)) {
+            $this->consoleHelper->error('--dry-run requires --project, --type and --summary.');
+
+            return Command::FAILURE;
+        }
+
         $isNonInteractive = $input->getOption('no-interaction') || $this->hasRequiredFlags($input);
 
         if ($isNonInteractive) {
@@ -220,16 +230,7 @@ class CreateTicketCommand extends Command
         ];
 
         if ($description !== '') {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = AdfHelper::descriptionToDoc($description);
         }
 
         $epicKey = $input->getOption('epic') ?? $input->getOption('parent');
@@ -242,9 +243,9 @@ class CreateTicketCommand extends Command
             $payload['fields']['priority'] = ['name' => $priority];
         }
 
-        $labelsRaw = $input->getOption('labels');
-        if ($labelsRaw !== null && $labelsRaw !== '') {
-            $payload['fields']['labels'] = array_values(array_filter(array_map('trim', explode(',', $labelsRaw))));
+        $labels = $this->parseLabels((string) ($input->getOption('labels') ?? ''));
+        if (!empty($labels)) {
+            $payload['fields']['labels'] = $labels;
         }
 
         return $payload;
@@ -295,21 +296,7 @@ class CreateTicketCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $issueType['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => AdfHelper::descriptionToDoc($description),
             ],
         ];
 
@@ -324,6 +311,10 @@ class CreateTicketCommand extends Command
 
         if (isset($additionalOptions['epic'])) {
             $issueData['fields']['parent'] = ['key' => $additionalOptions['epic']['key']];
+        }
+
+        if (!empty($additionalOptions['labels'])) {
+            $issueData['fields']['labels'] = $additionalOptions['labels'];
         }
 
         // Store sprint ID separately for later processing
@@ -717,7 +708,23 @@ class CreateTicketCommand extends Command
             $this->consoleHelper->info('No epics found for this project.');
         }
 
+        $this->consoleHelper->info('Labels');
+        $question = new Question('Enter labels (comma-separated, optional): ', '');
+        $labels = $this->parseLabels((string) ($this->questionHelper->ask($input, $output, $question) ?? ''));
+        if (!empty($labels)) {
+            $options['labels'] = $labels;
+            $this->consoleHelper->success('Will add labels: ' . implode(', ', $labels));
+        }
+
         return $options;
+    }
+
+    private function parseLabels(string $labelsRaw): array
+    {
+        $labels = array_map('trim', explode(',', $labelsRaw));
+        $labels = array_filter($labels, static fn (string $label): bool => $label !== '');
+
+        return array_values(array_unique($labels));
     }
 
     private function showSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, array $additionalOptions): void
@@ -747,6 +754,10 @@ class CreateTicketCommand extends Command
 
         if (isset($additionalOptions['epic'])) {
             $output->writeln("📚 <info>Epic:</info> {$additionalOptions['epic']['key']}");
+        }
+
+        if (!empty($additionalOptions['labels'])) {
+            $output->writeln('<info>Labels:</info> ' . implode(', ', $additionalOptions['labels']));
         }
 
         $this->consoleHelper->separator();
