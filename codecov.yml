@@ -1,0 +1,34 @@
+# Codecov behaviour for this repository.
+#
+# There is deliberately no `ignore:` block: phpunit.xml already decides the
+# coverage scope through its <source> element (src/ only, minus Installer.php),
+# so the clover report never contains anything that would need ignoring here.
+
+coverage:
+  range: 50..80
+
+  status:
+    # Both checks are informational on purpose. The project only started
+    # producing coverage data once CI began running, so there is no history to
+    # judge a regression against yet, and three sizeable PRs are still queued.
+    # Flip `informational` to false once a baseline worth enforcing exists.
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+
+    patch:
+      default:
+        target: 80%
+        threshold: 0%
+        informational: true
+
+# Post a coverage summary on every pull request, updating the same comment
+# instead of adding a new one on each push.
+comment:
+  layout: "header, diff, flags, files, footer"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
