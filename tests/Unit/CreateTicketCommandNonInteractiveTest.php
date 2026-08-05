@@ -212,6 +212,61 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
         $this->assertSame(['upgrade', 'backend'], $payload['fields']['labels']);
     }
 
+    public function testLabelsAreDeduplicatedAndTrimmed(): void
+    {
+        $input = new ArrayInput([
+            '--project' => 'ALDO',
+            '--type' => 'Task',
+            '--summary' => 'Labelled',
+            '--labels' => ' upgrade , backend ,upgrade,',
+        ], $this->command->getDefinition());
+
+        $payload = $this->command->buildNonInteractivePayload($input, 'ALDO', 'Task', 'Labelled');
+
+        $this->assertSame(['upgrade', 'backend'], $payload['fields']['labels']);
+        $this->assertSame([0, 1], array_keys($payload['fields']['labels']));
+    }
+
+    public function testEmptyLabelsOptionOmitsTheFieldEntirely(): void
+    {
+        $input = new ArrayInput([
+            '--project' => 'ALDO',
+            '--type' => 'Task',
+            '--summary' => 'Unlabelled',
+            '--labels' => ' , ,',
+        ], $this->command->getDefinition());
+
+        $payload = $this->command->buildNonInteractivePayload($input, 'ALDO', 'Task', 'Unlabelled');
+
+        $this->assertArrayNotHasKey('labels', $payload['fields']);
+    }
+
+    public function testDryRunWithoutRequiredFlagsFailsInsteadOfEnteringTheWizard(): void
+    {
+        // The wizard ends by creating a real ticket, so a --dry-run that falls
+        // through to it breaks the one promise the flag makes.
+        $tester = new CommandTester($this->command);
+
+        $tester->execute(['--dry-run' => true]);
+
+        $this->assertSame(1, $tester->getStatusCode());
+        $this->assertStringContainsString('--dry-run requires --project, --type and --summary', $tester->getDisplay());
+    }
+
+    public function testDryRunWithPartialFlagsAlsoFails(): void
+    {
+        $tester = new CommandTester($this->command);
+
+        $tester->execute([
+            '--project' => 'TEST',
+            '--type' => 'Task',
+            '--dry-run' => true,
+        ]);
+
+        $this->assertSame(1, $tester->getStatusCode());
+        $this->assertStringContainsString('--dry-run requires', $tester->getDisplay());
+    }
+
     public function testDryRunOutputsJsonWithoutCallingApi(): void
     {
         $tester = new CommandTester($this->command);
