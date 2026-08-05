@@ -17,13 +17,18 @@ class JiraApiClient
 
     private string $token;
 
-    public function __construct(string $baseUrl, string $email, string $token)
+    /**
+     * @param Client|null $httpClient injected by tests so the suite never
+     *                                         opens a real connection; production
+     *                                         callers leave it null
+     */
+    public function __construct(string $baseUrl, string $email, string $token, ?Client $httpClient = null)
     {
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->email = $email;
         $this->token = $token;
 
-        $this->client = new Client([
+        $this->client = $httpClient ?? new Client([
             'base_uri' => $this->baseUrl,
             'timeout' => 30,
             'auth' => [$this->email, $this->token],
@@ -219,9 +224,13 @@ class JiraApiClient
             }
 
             $response = $this->client->post("/rest/api/3/issue/{$issueKey}/attachments", [
+                // Content-Type is deliberately absent rather than null: Guzzle
+                // treats a null value as "already set" and then skips adding
+                // multipart/form-data, so the body would go out with no boundary
+                // and Jira could not parse it. Omitting the key lets Guzzle
+                // generate the correct header, overriding the client default.
                 'headers' => [
                     'X-Atlassian-Token' => 'no-check',
-                    'Content-Type' => null,
                 ],
                 'multipart' => [
                     [
