@@ -22,7 +22,6 @@ Thumbs.db
 
 # PHPStan
 /.phpstan.cache
-/phpstan.neon
 
 # Composer
 composer.lock
