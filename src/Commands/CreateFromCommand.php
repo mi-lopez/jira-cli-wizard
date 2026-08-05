@@ -8,6 +8,7 @@ use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputArgument;
@@ -16,12 +17,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'create-from', description: 'Create a new ticket based on an existing one')]
 class CreateFromCommand extends Command
 {
-    protected static string $defaultName = 'create-from';
-
-    protected static string $defaultDescription = 'Create a new ticket based on an existing one';
-
     private JiraApiClient $jiraClient;
 
     private ConfigManager $config;

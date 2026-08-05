@@ -8,6 +8,7 @@ use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -16,12 +17,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'create', description: 'Create a new Jira ticket using the interactive wizard')]
 class CreateTicketCommand extends Command
 {
-    protected static string $defaultName = 'create';
-
-    protected static string $defaultDescription = 'Create a new Jira ticket using the interactive wizard';
-
     private JiraApiClient $jiraClient;
 
     private ConfigManager $config;
