@@ -7,18 +7,16 @@ namespace MiLopez\JiraCliWizard\Commands;
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'configure', description: 'Configure Jira CLI with your credentials and settings')]
 class ConfigureCommand extends Command
 {
-    protected static string $defaultName = 'configure';
-
-    protected static string $defaultDescription = 'Configure Jira CLI with your credentials and settings';
-
     private ConfigManager $config;
 
     private QuestionHelper $questionHelper;

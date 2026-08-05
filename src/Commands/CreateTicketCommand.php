@@ -6,7 +6,9 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,12 +17,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'create', description: 'Create a new Jira ticket using the interactive wizard')]
 class CreateTicketCommand extends Command
 {
-    protected static string $defaultName = 'create';
-
-    protected static string $defaultDescription = 'Create a new Jira ticket using the interactive wizard';
-
     private JiraApiClient $jiraClient;
 
     private ConfigManager $config;
@@ -273,16 +272,7 @@ class CreateTicketCommand extends Command
         ];
 
         if ($description !== '') {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = MarkdownToAdf::convert($description);
         }
 
         $epicKey = $input->getOption('epic') ?? $input->getOption('parent');
@@ -358,21 +348,7 @@ class CreateTicketCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $issueType['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => MarkdownToAdf::convert($description),
             ],
         ];
 
