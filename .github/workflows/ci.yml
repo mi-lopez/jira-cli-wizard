@@ -58,8 +58,9 @@ jobs:
       # phpunit.xml already writes this file via its <junit> logger.
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v5
         with:
+          report_type: test_results
           files: ./tests/results/junit.xml
           flags: php${{ matrix.php-version }}-${{ matrix.dependencies }}
           fail_ci_if_error: false
