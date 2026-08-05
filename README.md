@@ -13,6 +13,10 @@ A beautiful, interactive CLI wizard for creating Jira tickets with smart default
 - 🤖 **Non-Interactive Mode**: Create tickets from scripts and AI agents using flags
 - 🎯 **Smart Defaults**: Suggests active sprints, recent epics, and assignees
 - 🚀 **Quick Creation**: Create tickets based on existing ones
+- ✏️ **Update Command**: Modify fields on existing tickets, interactively or by flag
+- 📎 **Attachments**: Upload files and screenshots on create, create-from and update
+- 📝 **Markdown Descriptions**: Headings, lists, bold, italic, code and links render as real Jira ADF
+- 🏷️ **Labels**: Prompted in the wizard, prefilled from the template when copying a ticket
 - 🔄 **Template System**: Copy settings from existing tickets
 - 🔍 **Resource Discovery**: List projects, issue types, priorities, epics, and sprints as JSON
 - 🧪 **Dry Run**: Preview the full payload before creating any ticket
@@ -297,7 +301,15 @@ Skip the wizard entirely by passing flags. Outputs only the issue key to stdout 
 | `--labels` | `-l` | No | Comma-separated labels (e.g. `upgrade,backend`) |
 | `--priority` | | No | Priority name (e.g. `High`, `Medium`, `Low`) |
 | `--sprint` | | No | Sprint ID or `active` to auto-resolve the current sprint |
+| `--assignee` | `-a` | No | Display name, email, account id, or `me` |
+| `--attachment` | | No | Path to a file to upload. Repeatable |
 | `--dry-run` | | No | Print the JSON payload without creating the ticket |
+
+> `--assignee` resolves by exact display name or email first, then by partial match. An ambiguous
+> partial match is rejected with the list of candidates rather than silently picking one.
+>
+> `--dry-run` requires `--project`, `--type` and `--summary`. Without them it fails instead of
+> falling through to the interactive wizard, which would create a real ticket.
 
 **Capture the key in a script:**
 ```bash
@@ -310,6 +322,67 @@ echo "Created: $KEY"
 ./vendor/bin/jira-wizard create \
   --project=ALDO --type=Task --summary="Test" --sprint=active --dry-run
 ```
+
+### Update an Existing Ticket
+
+```bash
+# Non-interactive: only the fields you pass are touched
+./vendor/bin/jira-wizard update ALDO-123 \
+  --summary="New title" \
+  --description="## Context\n\n- point one\n- point two" \
+  --priority=High \
+  --assignee=me \
+  --labels=backend,upgrade \
+  --sprint=active
+
+# Interactive: current values are offered as defaults
+./vendor/bin/jira-wizard update ALDO-123
+
+# Preview without writing
+./vendor/bin/jira-wizard update ALDO-123 --summary="New title" --dry-run
+```
+
+Fields accept the same values as `create`. Two update-specific conventions:
+
+- `--assignee=unassigned` (or `none`) clears the assignee.
+- `--epic=none` clears the parent link.
+- An empty `--labels=` clears every label, whereas omitting the flag leaves them untouched.
+
+### Attach Files
+
+Works on `create`, `create-from` and `update`. The flag is repeatable and the wizard also
+prompts for files:
+
+```bash
+./vendor/bin/jira-wizard create -p ALDO -t Bug -s "Checkout crash" \
+  --attachment=screenshot.png \
+  --attachment=stacktrace.log
+```
+
+Missing files are reported before anything is sent to Jira.
+
+### Markdown in Descriptions
+
+Descriptions are converted to Jira's ADF, so markdown renders as real formatting instead of
+literal characters:
+
+```bash
+./vendor/bin/jira-wizard create -p ALDO -t Task -s "Upgrade" -d "$(cat <<'EOF'
+# Goal
+
+Upgrade the bundle to **6.1**.
+
+- Review the `CHANGELOG`
+- Check [the docs](https://example.com)
+
+1. Bump the constraint
+2. Run the suite
+EOF
+)"
+```
+
+Supported: headings, bullet and ordered lists, `**bold**`, `*italic*`, `` `code` ``,
+`[links](url)`, blank lines as paragraph breaks and single newlines as hard breaks.
 
 ### List Resources as JSON
 
@@ -729,6 +802,31 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contributors**: All the amazing people who help improve this tool
 
 ## 📈 Changelog
+
+### [1.2.0] - 2026-08-05
+
+**⚠️ Upgrade strongly recommended: `1.1.0` does not start on current Symfony.**
+
+Added
+- ✏️ `update` command — modify summary, description, type, epic/parent, priority, assignee, labels and sprint on an existing ticket, interactively or by flag, with `--dry-run`
+- 📎 Attachment upload on `create`, `create-from` and `update` via the repeatable `--attachment` flag, plus a wizard prompt
+- 👤 `--assignee` (`-a`) in non-interactive mode, resolving display name, email, account id or `me`
+- 📝 Markdown descriptions rendered as real Jira ADF — headings, bullet and ordered lists, bold, italic, inline code, links and hard breaks
+- 🏷️ Labels prompted in the `create` wizard, and prefilled from the source ticket in `create-from`
+
+Fixed
+- 🐛 **The CLI failed to start on symfony/console 6.0 and 7.4.** Every command class redeclared `$defaultName` with a type the parent declares untyped, which is a fatal error in PHP. Only 7.3.x happened to work, so `1.1.0` is broken on a fresh install. Commands now use `#[AsCommand]`
+- 🐛 **Attachment uploads were never sent correctly.** The request cleared its `Content-Type` with a null value, which makes Guzzle skip `multipart/form-data`, so the body went out with no boundary for the server to parse
+- 🐛 **`--dry-run` could create a real ticket.** Without the non-interactive flags it fell through to the wizard, which ends by creating the ticket. It now fails up front
+- 🐛 An ambiguous `--assignee` no longer silently picks the first partial match; it lists the candidates and stops
+- 🐛 Issue types without a `description` no longer emit a PHP warning
+- 🐛 `getIssue()` now requests the `labels` field
+
+Internal
+- ✅ Test suite grew from 31 to 114 tests; line coverage from ~19% to ~44%
+- 🔌 `JiraApiClient` is injectable into the commands, and accepts an HTTP client, so the suite runs fully offline
+- 🔁 The two duplicated assignee resolvers were merged into one tested helper
+- ⚙️ **CI now runs.** It had never executed once: it triggered on `main`/`develop` while the default branch is `master`. Test Analytics and Codecov PR reporting are wired up
 
 ### [1.1.0] - 2026-06-02
 - 🤖 **NEW**: Non-interactive mode for `create` — pass all fields as flags, get issue key on stdout
