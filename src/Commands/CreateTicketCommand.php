@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
+use MiLopez\JiraCliWizard\Helpers\AssigneeResolver;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\Helpers\LabelParser;
 use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
@@ -23,11 +24,30 @@ class CreateTicketCommand extends Command
 {
     private JiraApiClient $jiraClient;
 
+    private ?JiraApiClient $injectedClient;
+
     private ConfigManager $config;
 
     private QuestionHelper $questionHelper;
 
     private ConsoleHelper $consoleHelper;
+
+    /**
+     * @param JiraApiClient|null $jiraClient injected by tests; production callers
+     *                                      leave it null and the client is built
+     *                                      from config inside execute()
+     */
+    public function __construct(?JiraApiClient $jiraClient = null)
+    {
+        parent::__construct();
+        $this->injectedClient = $jiraClient;
+
+        // Also set it eagerly so the payload builders can be exercised on their
+        // own, without going through execute() and its config/credential checks.
+        if ($jiraClient !== null) {
+            $this->jiraClient = $jiraClient;
+        }
+    }
 
     protected function configure(): void
     {
@@ -75,7 +95,7 @@ class CreateTicketCommand extends Command
             return Command::FAILURE;
         }
 
-        $this->jiraClient = new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
+        $this->jiraClient = $this->injectedClient ?? new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
 
         $isDryRun = (bool) $input->getOption('dry-run');
 
@@ -256,56 +276,13 @@ class CreateTicketCommand extends Command
         return (int) $sprint;
     }
 
-    private function resolveAssigneeId(string $assigneeQuery, string $projectKey): ?string
+    private function resolveAssigneeId(string $assigneeQuery, string $projectKey): string
     {
         if (strtolower($assigneeQuery) === 'me') {
-            $assigneeQuery = $this->config->get('jira_email');
+            $assigneeQuery = (string) $this->config->get('jira_email');
         }
 
-        $users = $this->jiraClient->getAssignableUsers($projectKey);
-
-        if (empty($users)) {
-            throw new \InvalidArgumentException('No assignable users found for this project.');
-        }
-
-        // 1. Find by exact display name or email (case insensitive)
-        foreach ($users as $user) {
-            $displayName = $user['displayName'] ?? '';
-            $email = $user['emailAddress'] ?? '';
-
-            if (strtolower($displayName) === strtolower($assigneeQuery) ||
-                strtolower($email) === strtolower($assigneeQuery)) {
-                return $user['accountId'];
-            }
-        }
-
-        // 2. Try partial matching
-        $partialMatches = [];
-        foreach ($users as $user) {
-            $displayName = $user['displayName'] ?? '';
-            $email = $user['emailAddress'] ?? '';
-
-            if (stripos($displayName, $assigneeQuery) !== false ||
-                stripos($email, $assigneeQuery) !== false) {
-                $partialMatches[] = $user;
-            }
-        }
-
-        if (count($partialMatches) === 1) {
-            return $partialMatches[0]['accountId'];
-        } elseif (count($partialMatches) > 1) {
-            $names = array_map(fn ($user) => $user['displayName'] ?? $user['emailAddress'] ?? $user['accountId'], $partialMatches);
-            throw new \InvalidArgumentException("Multiple assignees found matching '{$assigneeQuery}': " . implode(', ', $names));
-        }
-
-        // 3. Match by accountId directly
-        foreach ($users as $user) {
-            if ($user['accountId'] === $assigneeQuery) {
-                return $user['accountId'];
-            }
-        }
-
-        throw new \InvalidArgumentException("No assignee found matching '{$assigneeQuery}'.");
+        return AssigneeResolver::resolve($this->jiraClient->getAssignableUsers($projectKey), $assigneeQuery);
     }
 
     public function buildNonInteractivePayload(InputInterface $input, string $projectKey, string $typeName, string $summary): array
@@ -342,10 +319,7 @@ class CreateTicketCommand extends Command
         if ($input->hasOption('assignee')) {
             $assigneeQuery = $input->getOption('assignee');
             if ($assigneeQuery !== null && $assigneeQuery !== '' && isset($this->jiraClient)) {
-                $accountId = $this->resolveAssigneeId($assigneeQuery, $projectKey);
-                if ($accountId !== null) {
-                    $payload['fields']['assignee'] = ['accountId' => $accountId];
-                }
+                $payload['fields']['assignee'] = ['accountId' => $this->resolveAssigneeId($assigneeQuery, $projectKey)];
             }
         }
 
@@ -538,7 +512,7 @@ class CreateTicketCommand extends Command
 
         foreach ($issueTypes as $index => $type) {
             if (!$type['subtask']) { // Only show non-subtask types
-                $displayName = "{$type['name']} - {$type['description']}";
+                $displayName = trim($type['name'] . ' - ' . ($type['description'] ?? ''), ' -');
                 $choices[$index] = $displayName;
                 $issueTypeMap[$index] = $type;
                 $output->writeln("  [{$index}] {$displayName}");
@@ -577,7 +551,7 @@ class CreateTicketCommand extends Command
                 $output->writeln("\n<comment>Multiple matches found for '{$answer}':</comment>");
                 foreach ($partialMatches as $index) {
                     $type = $issueTypes[$index];
-                    $output->writeln("  [{$index}] {$type['name']} - {$type['description']}");
+                    $output->writeln('  [' . $index . '] ' . trim($type['name'] . ' - ' . ($type['description'] ?? ''), ' -'));
                 }
                 throw new \InvalidArgumentException('Multiple matches found. Please be more specific.');
             }

@@ -23,11 +23,30 @@ class CreateFromCommand extends Command
 {
     private JiraApiClient $jiraClient;
 
+    private ?JiraApiClient $injectedClient;
+
     private ConfigManager $config;
 
     private QuestionHelper $questionHelper;
 
     private ConsoleHelper $consoleHelper;
+
+    /**
+     * @param JiraApiClient|null $jiraClient injected by tests; production callers
+     *                                      leave it null and the client is built
+     *                                      from config inside execute()
+     */
+    public function __construct(?JiraApiClient $jiraClient = null)
+    {
+        parent::__construct();
+        $this->injectedClient = $jiraClient;
+
+        // Also set it eagerly so the payload builders can be exercised on their
+        // own, without going through execute() and its config/credential checks.
+        if ($jiraClient !== null) {
+            $this->jiraClient = $jiraClient;
+        }
+    }
 
     protected function configure(): void
     {
@@ -87,7 +106,7 @@ class CreateFromCommand extends Command
             return Command::FAILURE;
         }
 
-        $this->jiraClient = new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
+        $this->jiraClient = $this->injectedClient ?? new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
 
         // Test connection
         $this->consoleHelper->info('🔗 Testing Jira connection...');

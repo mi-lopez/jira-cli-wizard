@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
+use MiLopez\JiraCliWizard\Helpers\AssigneeResolver;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\LabelParser;
 use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -23,11 +25,30 @@ class UpdateCommand extends Command
 {
     private JiraApiClient $jiraClient;
 
+    private ?JiraApiClient $injectedClient;
+
     private ConfigManager $config;
 
     private QuestionHelper $questionHelper;
 
     private ConsoleHelper $consoleHelper;
+
+    /**
+     * @param JiraApiClient|null $jiraClient injected by tests; production callers
+     *                                      leave it null and the client is built
+     *                                      from config inside execute()
+     */
+    public function __construct(?JiraApiClient $jiraClient = null)
+    {
+        parent::__construct();
+        $this->injectedClient = $jiraClient;
+
+        // Also set it eagerly so the payload builders can be exercised on their
+        // own, without going through execute() and its config/credential checks.
+        if ($jiraClient !== null) {
+            $this->jiraClient = $jiraClient;
+        }
+    }
 
     protected function configure(): void
     {
@@ -73,7 +94,7 @@ class UpdateCommand extends Command
             return Command::FAILURE;
         }
 
-        $this->jiraClient = new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
+        $this->jiraClient = $this->injectedClient ?? new JiraApiClient($jiraUrl, $jiraEmail, $jiraToken);
 
         $issueKey = strtoupper($input->getArgument('issue-key'));
 
@@ -188,7 +209,7 @@ class UpdateCommand extends Command
             || $input->getOption('sprint') !== null;
     }
 
-    private function buildNonInteractivePayload(InputInterface $input, string $projectKey): array
+    public function buildNonInteractivePayload(InputInterface $input, string $projectKey): array
     {
         $payload = ['fields' => []];
 
@@ -231,9 +252,11 @@ class UpdateCommand extends Command
             }
         }
 
+        // An explicit empty --labels is meaningful here: it clears the field.
+        // That is why this checks for null rather than for an empty result.
         $labelsRaw = $input->getOption('labels');
         if ($labelsRaw !== null) {
-            $payload['fields']['labels'] = array_values(array_filter(array_map('trim', explode(',', $labelsRaw))));
+            $payload['fields']['labels'] = LabelParser::parse($labelsRaw);
         }
 
         $sprint = $input->getOption('sprint');
@@ -253,27 +276,7 @@ class UpdateCommand extends Command
 
     private function resolveAssigneeAccountId(string $assigneeInput, string $projectKey): string
     {
-        $users = $this->jiraClient->getAssignableUsers($projectKey);
-        foreach ($users as $user) {
-            if ($user['accountId'] === $assigneeInput) {
-                return $user['accountId'];
-            }
-            if (isset($user['displayName']) && strtolower($user['displayName']) === strtolower($assigneeInput)) {
-                return $user['accountId'];
-            }
-            if (isset($user['emailAddress']) && strtolower($user['emailAddress']) === strtolower($assigneeInput)) {
-                return $user['accountId'];
-            }
-        }
-
-        // Try partial matching
-        foreach ($users as $user) {
-            if (isset($user['displayName']) && stripos($user['displayName'], $assigneeInput) !== false) {
-                return $user['accountId'];
-            }
-        }
-
-        throw new \Exception("Could not find assignable user matching '{$assigneeInput}'");
+        return AssigneeResolver::resolve($this->jiraClient->getAssignableUsers($projectKey), $assigneeInput);
     }
 
     private function runInteractiveWizard(InputInterface $input, OutputInterface $output, array $issue, string $projectKey): array
