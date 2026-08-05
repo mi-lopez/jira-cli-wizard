@@ -6,6 +6,7 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\LabelParser;
 use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -312,6 +313,13 @@ class CreateFromCommand extends Command
             $issueData['fields']['parent'] = ['key' => $epic['key']];
         }
 
+        // Defaults to the template's own labels, so copying a ticket keeps them
+        // unless the user edits the answer.
+        $labels = $this->enterLabels($input, $output, $originalFields['labels'] ?? []);
+        if (!empty($labels)) {
+            $issueData['fields']['labels'] = $labels;
+        }
+
         // Store sprint ID separately for later processing
         if ($sprint) {
             $issueData['sprint_id'] = $sprint['id'];
@@ -346,7 +354,7 @@ class CreateFromCommand extends Command
         }
 
         // Show summary
-        $this->showNewTicketSummary($output, $project, $originalFields['issuetype'], $summary, $description, $priority, $assignee, $epic, $sprint, $attachments);
+        $this->showNewTicketSummary($output, $project, $originalFields['issuetype'], $summary, $description, $priority, $assignee, $epic, $sprint, $attachments, $labels);
 
         // Confirm creation
         $question = new Question('🤔 Create this ticket? (y/N): ', 'n');
@@ -359,7 +367,23 @@ class CreateFromCommand extends Command
         return $issueData;
     }
 
-    private function showNewTicketSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, ?array $epic, ?array $sprint, array $attachments = []): void
+    /**
+     * @param list<string> $currentLabels
+     *
+     * @return list<string>
+     */
+    private function enterLabels(InputInterface $input, OutputInterface $output, array $currentLabels): array
+    {
+        $this->consoleHelper->separator();
+        $this->consoleHelper->info('🏷️  Labels');
+
+        $default = implode(', ', $currentLabels);
+        $question = new Question("Enter labels (comma-separated, optional) [{$default}]: ", $default);
+
+        return LabelParser::parse((string) ($this->questionHelper->ask($input, $output, $question) ?? ''));
+    }
+
+    private function showNewTicketSummary(OutputInterface $output, array $project, array $issueType, string $summary, string $description, ?array $priority, ?array $assignee, ?array $epic, ?array $sprint, array $attachments = [], array $labels = []): void
     {
         $this->consoleHelper->separator();
         $this->consoleHelper->title('📋 New Ticket Summary');
@@ -386,6 +410,10 @@ class CreateFromCommand extends Command
 
         if ($epic) {
             $output->writeln("📚 <info>Epic:</info> {$epic['key']}");
+        }
+
+        if (!empty($labels)) {
+            $output->writeln('🏷️  <info>Labels:</info> ' . implode(', ', $labels));
         }
 
         if (!empty($attachments)) {
