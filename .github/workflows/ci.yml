@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
 
 jobs:
   test:
@@ -35,12 +35,12 @@ jobs:
 
       - name: Cache Composer packages
         id: composer-cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: vendor
-          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
+          key: ${{ runner.os }}-php${{ matrix.php-version }}-${{ matrix.dependencies }}-${{ hashFiles('**/composer.json') }}
           restore-keys: |
-            ${{ runner.os }}-php-
+            ${{ runner.os }}-php${{ matrix.php-version }}-${{ matrix.dependencies }}-
 
       - name: Install dependencies (highest)
         if: matrix.dependencies == 'highest'
@@ -65,9 +65,9 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.php-version == '8.1' && matrix.dependencies == 'highest'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage/clover.xml
+          files: ./coverage/clover.xml
           fail_ci_if_error: false
 
   security:
