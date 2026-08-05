@@ -14,12 +14,41 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
 {
     private CreateTicketCommand $command;
 
+    private string $tempHome;
+
+    private ?string $originalHome;
+
     protected function setUp(): void
     {
+        // execute() bails out with FAILURE unless $HOME/.jira-cli-config.json holds
+        // credentials, so the dry-run tests below only passed on a machine with a
+        // real Jira config. Point HOME at a throwaway fixture to keep them hermetic.
+        $this->originalHome = $_SERVER['HOME'] ?? null;
+        $this->tempHome = sys_get_temp_dir() . '/jira-cli-wizard-test-' . bin2hex(random_bytes(8));
+        mkdir($this->tempHome, 0700, true);
+        file_put_contents($this->tempHome . '/.jira-cli-config.json', (string) json_encode([
+            'jira_url' => 'https://example.atlassian.net',
+            'jira_email' => 'tester@example.com',
+            'jira_token' => 'test-token',
+        ]));
+        $_SERVER['HOME'] = $this->tempHome;
+
         $this->command = new CreateTicketCommand();
 
         $app = new Application();
         $app->add($this->command);
+    }
+
+    protected function tearDown(): void
+    {
+        @unlink($this->tempHome . '/.jira-cli-config.json');
+        @rmdir($this->tempHome);
+
+        if ($this->originalHome === null) {
+            unset($_SERVER['HOME']);
+        } else {
+            $_SERVER['HOME'] = $this->originalHome;
+        }
     }
 
     public function testCommandHasRequiredOptions(): void
