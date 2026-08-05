@@ -6,7 +6,9 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,12 +17,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'create', description: 'Create a new Jira ticket using the interactive wizard')]
 class CreateTicketCommand extends Command
 {
-    protected static string $defaultName = 'create';
-
-    protected static string $defaultDescription = 'Create a new Jira ticket using the interactive wizard';
-
     private JiraApiClient $jiraClient;
 
     private ConfigManager $config;
@@ -44,7 +43,8 @@ class CreateTicketCommand extends Command
             ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels (e.g. backend,upgrade)')
             ->addOption('priority', null, InputOption::VALUE_REQUIRED, 'Priority name (e.g. High, Medium, Low)')
             ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active" to use the current active sprint')
-            ->addOption('attachment', 'a', InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload')
+            ->addOption('assignee', 'a', InputOption::VALUE_REQUIRED, 'Assignee username, email, or "me"')
+            ->addOption('attachment', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload (repeatable)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without creating the ticket');
     }
 
@@ -139,11 +139,11 @@ class CreateTicketCommand extends Command
                 $this->consoleHelper->info('📎 Uploading attachments...');
                 foreach ($attachments as $filePath) {
                     try {
-                        $this->consoleHelper->info("  Uploading " . basename($filePath) . "...");
+                        $this->consoleHelper->info('  Uploading ' . basename($filePath) . '...');
                         $this->jiraClient->uploadAttachment($issueKey, $filePath);
-                        $this->consoleHelper->success("  ✅ Uploaded: " . basename($filePath));
+                        $this->consoleHelper->success('  ✅ Uploaded: ' . basename($filePath));
                     } catch (\Exception $e) {
-                        $this->consoleHelper->warning("  ⚠️  Failed to upload " . basename($filePath) . ": " . $e->getMessage());
+                        $this->consoleHelper->warning('  ⚠️  Failed to upload ' . basename($filePath) . ': ' . $e->getMessage());
                     }
                 }
             }
@@ -245,6 +245,58 @@ class CreateTicketCommand extends Command
         return (int) $sprint;
     }
 
+    private function resolveAssigneeId(string $assigneeQuery, string $projectKey): ?string
+    {
+        if (strtolower($assigneeQuery) === 'me') {
+            $assigneeQuery = $this->config->get('jira_email');
+        }
+
+        $users = $this->jiraClient->getAssignableUsers($projectKey);
+
+        if (empty($users)) {
+            throw new \InvalidArgumentException('No assignable users found for this project.');
+        }
+
+        // 1. Find by exact display name or email (case insensitive)
+        foreach ($users as $user) {
+            $displayName = $user['displayName'] ?? '';
+            $email = $user['emailAddress'] ?? '';
+
+            if (strtolower($displayName) === strtolower($assigneeQuery) ||
+                strtolower($email) === strtolower($assigneeQuery)) {
+                return $user['accountId'];
+            }
+        }
+
+        // 2. Try partial matching
+        $partialMatches = [];
+        foreach ($users as $user) {
+            $displayName = $user['displayName'] ?? '';
+            $email = $user['emailAddress'] ?? '';
+
+            if (stripos($displayName, $assigneeQuery) !== false ||
+                stripos($email, $assigneeQuery) !== false) {
+                $partialMatches[] = $user;
+            }
+        }
+
+        if (count($partialMatches) === 1) {
+            return $partialMatches[0]['accountId'];
+        } elseif (count($partialMatches) > 1) {
+            $names = array_map(fn ($user) => $user['displayName'] ?? $user['emailAddress'] ?? $user['accountId'], $partialMatches);
+            throw new \InvalidArgumentException("Multiple assignees found matching '{$assigneeQuery}': " . implode(', ', $names));
+        }
+
+        // 3. Match by accountId directly
+        foreach ($users as $user) {
+            if ($user['accountId'] === $assigneeQuery) {
+                return $user['accountId'];
+            }
+        }
+
+        throw new \InvalidArgumentException("No assignee found matching '{$assigneeQuery}'.");
+    }
+
     public function buildNonInteractivePayload(InputInterface $input, string $projectKey, string $typeName, string $summary): array
     {
         $description = (string) $input->getOption('description');
@@ -258,16 +310,7 @@ class CreateTicketCommand extends Command
         ];
 
         if ($description !== '') {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = MarkdownToAdf::convert($description);
         }
 
         $epicKey = $input->getOption('epic') ?? $input->getOption('parent');
@@ -283,6 +326,16 @@ class CreateTicketCommand extends Command
         $labelsRaw = $input->getOption('labels');
         if ($labelsRaw !== null && $labelsRaw !== '') {
             $payload['fields']['labels'] = array_values(array_filter(array_map('trim', explode(',', $labelsRaw))));
+        }
+
+        if ($input->hasOption('assignee')) {
+            $assigneeQuery = $input->getOption('assignee');
+            if ($assigneeQuery !== null && $assigneeQuery !== '' && isset($this->jiraClient)) {
+                $accountId = $this->resolveAssigneeId($assigneeQuery, $projectKey);
+                if ($accountId !== null) {
+                    $payload['fields']['assignee'] = ['accountId' => $accountId];
+                }
+            }
         }
 
         return $payload;
@@ -337,21 +390,7 @@ class CreateTicketCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $issueType['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => MarkdownToAdf::convert($description),
             ],
         ];
 
@@ -797,9 +836,9 @@ class CreateTicketCommand extends Command
         }
 
         if (!empty($attachments)) {
-            $output->writeln("📎 <info>Attachments:</info>");
+            $output->writeln('📎 <info>Attachments:</info>');
             foreach ($attachments as $filePath) {
-                $output->writeln("  - " . basename($filePath));
+                $output->writeln('  - ' . basename($filePath));
             }
         }
 
@@ -826,7 +865,7 @@ class CreateTicketCommand extends Command
             }
 
             $attachments[] = $filePath;
-            $this->consoleHelper->success("✅ Added attachment: " . basename($filePath));
+            $this->consoleHelper->success('✅ Added attachment: ' . basename($filePath));
         }
 
         return $attachments;

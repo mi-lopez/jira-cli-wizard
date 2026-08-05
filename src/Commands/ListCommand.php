@@ -6,19 +6,17 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'list', description: 'List Jira resources as JSON (for scripting/AI agents)')]
 class ListCommand extends Command
 {
     public const RESOURCES = ['projects', 'issue-types', 'priorities', 'epics', 'sprints'];
-
-    protected static string $defaultName = 'list';
-
-    protected static string $defaultDescription = 'List Jira resources as JSON (for scripting/AI agents)';
 
     protected function configure(): void
     {

@@ -228,7 +228,7 @@ class JiraApiClient
                         'name' => 'file',
                         'contents' => fopen($filePath, 'r'),
                         'filename' => basename($filePath),
-                    ]
+                    ],
                 ],
             ]);
 

@@ -6,7 +6,9 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputArgument;
@@ -15,12 +17,9 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'create-from', description: 'Create a new ticket based on an existing one')]
 class CreateFromCommand extends Command
 {
-    protected static string $defaultName = 'create-from';
-
-    protected static string $defaultDescription = 'Create a new ticket based on an existing one';
-
     private JiraApiClient $jiraClient;
 
     private ConfigManager $config;
@@ -47,9 +46,9 @@ class CreateFromCommand extends Command
             )
             ->addOption(
                 'attachment',
-                'a',
+                null,
                 InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED,
-                'Path to attachment files/images to upload'
+                'Path to attachment files/images to upload (repeatable)'
             )
             ->setHelp(
                 'This command creates a new ticket using an existing ticket as a template.' . PHP_EOL .
@@ -161,11 +160,11 @@ class CreateFromCommand extends Command
                 $this->consoleHelper->info('📎 Uploading attachments...');
                 foreach ($attachments as $filePath) {
                     try {
-                        $this->consoleHelper->info("  Uploading " . basename($filePath) . "...");
+                        $this->consoleHelper->info('  Uploading ' . basename($filePath) . '...');
                         $this->jiraClient->uploadAttachment($newIssueKey, $filePath);
-                        $this->consoleHelper->success("  ✅ Uploaded: " . basename($filePath));
+                        $this->consoleHelper->success('  ✅ Uploaded: ' . basename($filePath));
                     } catch (\Exception $e) {
-                        $this->consoleHelper->warning("  ⚠️  Failed to upload " . basename($filePath) . ": " . $e->getMessage());
+                        $this->consoleHelper->warning('  ⚠️  Failed to upload ' . basename($filePath) . ': ' . $e->getMessage());
                     }
                 }
             }
@@ -296,21 +295,7 @@ class CreateFromCommand extends Command
                 'project' => ['key' => $project['key']],
                 'issuetype' => ['id' => $originalFields['issuetype']['id']],
                 'summary' => $summary,
-                'description' => [
-                    'type' => 'doc',
-                    'version' => 1,
-                    'content' => [
-                        [
-                            'type' => 'paragraph',
-                            'content' => [
-                                [
-                                    'type' => 'text',
-                                    'text' => $description,
-                                ],
-                            ],
-                        ],
-                    ],
-                ],
+                'description' => MarkdownToAdf::convert($description),
             ],
         ];
 
@@ -352,7 +337,7 @@ class CreateFromCommand extends Command
                 }
 
                 $attachments[] = $filePath;
-                $this->consoleHelper->success("✅ Added attachment: " . basename($filePath));
+                $this->consoleHelper->success('✅ Added attachment: ' . basename($filePath));
             }
         }
 
@@ -404,9 +389,9 @@ class CreateFromCommand extends Command
         }
 
         if (!empty($attachments)) {
-            $output->writeln("📎 <info>Attachments:</info>");
+            $output->writeln('📎 <info>Attachments:</info>');
             foreach ($attachments as $filePath) {
-                $output->writeln("  - " . basename($filePath));
+                $output->writeln('  - ' . basename($filePath));
             }
         }
 

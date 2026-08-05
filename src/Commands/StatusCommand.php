@@ -7,16 +7,14 @@ namespace MiLopez\JiraCliWizard\Commands;
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
+#[AsCommand(name: 'status', description: 'Show current configuration and connection status')]
 class StatusCommand extends Command
 {
-    protected static string $defaultName = 'status';
-
-    protected static string $defaultDescription = 'Show current configuration and connection status';
-
     private ConfigManager $config;
 
     private ConsoleHelper $consoleHelper;

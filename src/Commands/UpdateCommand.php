@@ -6,7 +6,9 @@ namespace MiLopez\JiraCliWizard\Commands;
 
 use MiLopez\JiraCliWizard\ConfigManager;
 use MiLopez\JiraCliWizard\Helpers\ConsoleHelper;
+use MiLopez\JiraCliWizard\Helpers\MarkdownToAdf;
 use MiLopez\JiraCliWizard\JiraApiClient;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputArgument;
@@ -16,12 +18,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Question\Question;
 
+#[AsCommand(name: 'update', description: 'Update an existing Jira ticket')]
 class UpdateCommand extends Command
 {
-    protected static string $defaultName = 'update';
-
-    protected static string $defaultDescription = 'Update an existing Jira ticket';
-
     private JiraApiClient $jiraClient;
 
     private ConfigManager $config;
@@ -46,7 +45,7 @@ class UpdateCommand extends Command
             ->addOption('assignee', null, InputOption::VALUE_REQUIRED, 'New assignee (displayName, email, accountId, or "unassigned")')
             ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels')
             ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active"')
-            ->addOption('attachment', 'a', InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload')
+            ->addOption('attachment', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload (repeatable)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without updating the ticket');
     }
 
@@ -159,11 +158,11 @@ class UpdateCommand extends Command
                 $this->consoleHelper->info('📎 Uploading attachments...');
                 foreach ($attachments as $filePath) {
                     try {
-                        $this->consoleHelper->info("  Uploading " . basename($filePath) . "...");
+                        $this->consoleHelper->info('  Uploading ' . basename($filePath) . '...');
                         $this->jiraClient->uploadAttachment($issueKey, $filePath);
-                        $this->consoleHelper->success("  ✅ Uploaded: " . basename($filePath));
+                        $this->consoleHelper->success('  ✅ Uploaded: ' . basename($filePath));
                     } catch (\Exception $e) {
-                        $this->consoleHelper->warning("  ⚠️  Failed to upload " . basename($filePath) . ": " . $e->getMessage());
+                        $this->consoleHelper->warning('  ⚠️  Failed to upload ' . basename($filePath) . ': ' . $e->getMessage());
                     }
                 }
             }
@@ -200,16 +199,7 @@ class UpdateCommand extends Command
 
         $description = $input->getOption('description');
         if ($description !== null) {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = MarkdownToAdf::convert($description);
         }
 
         $type = $input->getOption('type');
@@ -309,16 +299,7 @@ class UpdateCommand extends Command
         $question = new Question("Description [{$currentDesc}]: ", $currentDesc);
         $description = $this->questionHelper->ask($input, $output, $question);
         if ($description !== $currentDesc) {
-            $payload['fields']['description'] = [
-                'type' => 'doc',
-                'version' => 1,
-                'content' => [
-                    [
-                        'type' => 'paragraph',
-                        'content' => [['type' => 'text', 'text' => $description]],
-                    ],
-                ],
-            ];
+            $payload['fields']['description'] = MarkdownToAdf::convert($description);
         }
 
         // 3. Issue Type
@@ -450,7 +431,7 @@ class UpdateCommand extends Command
             }
 
             $attachments[] = $filePath;
-            $this->consoleHelper->success("✅ Added attachment: " . basename($filePath));
+            $this->consoleHelper->success('✅ Added attachment: ' . basename($filePath));
         }
 
         if (!empty($attachments)) {

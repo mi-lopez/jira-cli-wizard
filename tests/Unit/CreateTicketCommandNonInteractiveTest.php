@@ -14,12 +14,41 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
 {
     private CreateTicketCommand $command;
 
+    private string $tempHome;
+
+    private ?string $originalHome;
+
     protected function setUp(): void
     {
+        // execute() bails out with FAILURE unless $HOME/.jira-cli-config.json holds
+        // credentials, so the dry-run tests below only passed on a machine with a
+        // real Jira config. Point HOME at a throwaway fixture to keep them hermetic.
+        $this->originalHome = $_SERVER['HOME'] ?? null;
+        $this->tempHome = sys_get_temp_dir() . '/jira-cli-wizard-test-' . bin2hex(random_bytes(8));
+        mkdir($this->tempHome, 0700, true);
+        file_put_contents($this->tempHome . '/.jira-cli-config.json', (string) json_encode([
+            'jira_url' => 'https://example.atlassian.net',
+            'jira_email' => 'tester@example.com',
+            'jira_token' => 'test-token',
+        ]));
+        $_SERVER['HOME'] = $this->tempHome;
+
         $this->command = new CreateTicketCommand();
 
         $app = new Application();
         $app->add($this->command);
+    }
+
+    protected function tearDown(): void
+    {
+        @unlink($this->tempHome . '/.jira-cli-config.json');
+        @rmdir($this->tempHome);
+
+        if ($this->originalHome === null) {
+            unset($_SERVER['HOME']);
+        } else {
+            $_SERVER['HOME'] = $this->originalHome;
+        }
     }
 
     public function testCommandHasRequiredOptions(): void
@@ -35,6 +64,7 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
         $this->assertTrue($definition->hasOption('labels'));
         $this->assertTrue($definition->hasOption('priority'));
         $this->assertTrue($definition->hasOption('dry-run'));
+        $this->assertTrue($definition->hasOption('assignee'));
     }
 
     public function testBuildNonInteractivePayloadMinimal(): void
@@ -54,6 +84,21 @@ class CreateTicketCommandNonInteractiveTest extends TestCase
         $this->assertArrayNotHasKey('parent', $payload['fields']);
         $this->assertArrayNotHasKey('priority', $payload['fields']);
         $this->assertArrayNotHasKey('labels', $payload['fields']);
+    }
+
+    public function testBuildNonInteractivePayloadWithAssigneeNoClientDoesNotCrash(): void
+    {
+        $input = new ArrayInput([
+            '--project' => 'ALDO',
+            '--type' => 'Task',
+            '--summary' => 'Test ticket',
+            '--assignee' => 'assignee@example.com',
+        ], $this->command->getDefinition());
+
+        $payload = $this->command->buildNonInteractivePayload($input, 'ALDO', 'Task', 'Test ticket');
+
+        $this->assertSame('ALDO', $payload['fields']['project']['key']);
+        $this->assertArrayNotHasKey('assignee', $payload['fields']);
     }
 
     public function testBuildNonInteractivePayloadProjectKeyIsUppercased(): void
