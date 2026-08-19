@@ -195,6 +195,90 @@ class ViewCommandTest extends TestCase
         $this->assertSame('', $json['description']);
     }
 
+    public function testCommentsAreOptOutByDefault(): void
+    {
+        // Comments cost an extra request, so a plain view must not mention them.
+        $output = $this->render(['summary' => 'Something']);
+
+        $this->assertStringNotContainsString('Comments', $output);
+        $this->assertStringNotContainsString('(no comments)', $output);
+    }
+
+    public function testCommentsAreRenderedWithAuthorAndDate(): void
+    {
+        $output = new BufferedOutput();
+        $this->command->renderIssue($output, ['key' => 'ALDO-7', 'fields' => ['summary' => 'Something']], '', [
+            [
+                'author' => ['displayName' => 'Ada Lovelace'],
+                'created' => '2026-08-01T10:22:00.000+0200',
+                'updated' => '2026-08-01T10:22:00.000+0200',
+                'body' => ['type' => 'doc', 'version' => 1, 'content' => [
+                    ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'looks good to me']]],
+                ]],
+            ],
+        ]);
+        $display = $output->fetch();
+
+        $this->assertStringContainsString('Comments (1)', $display);
+        $this->assertStringContainsString('Ada Lovelace', $display);
+        $this->assertStringContainsString('looks good to me', $display);
+        $this->assertStringNotContainsString('edited', $display);
+    }
+
+    public function testOnlyGenuinelyEditedCommentsSaySo(): void
+    {
+        // Jira sets updated to created on untouched comments.
+        $output = new BufferedOutput();
+        $this->command->renderIssue($output, ['key' => 'ALDO-7', 'fields' => ['summary' => 'S']], '', [[
+            'author' => ['displayName' => 'Ada'],
+            'created' => '2026-08-01T10:22:00.000+0200',
+            'updated' => '2026-08-02T11:00:00.000+0200',
+            'body' => null,
+        ]]);
+
+        $this->assertStringContainsString('edited', $output->fetch());
+    }
+
+    public function testAskingForCommentsOnATicketWithNoneSaysSo(): void
+    {
+        $output = new BufferedOutput();
+        $this->command->renderIssue($output, ['key' => 'ALDO-7', 'fields' => ['summary' => 'S']], '', []);
+
+        $this->assertStringContainsString('(no comments)', $output->fetch());
+    }
+
+    public function testJsonOmitsCommentsUnlessTheyWereRequested(): void
+    {
+        // An absent key means "not asked for", which is not the same claim as
+        // an empty list.
+        $issue = ['key' => 'ALDO-7', 'fields' => ['summary' => 'S']];
+
+        $this->assertArrayNotHasKey('comments', ViewCommand::toArray($issue, ''));
+        $this->assertSame([], ViewCommand::toArray($issue, '', [])['comments']);
+    }
+
+    public function testJsonCommentsCarryAuthorDatesAndMarkdownBody(): void
+    {
+        $json = ViewCommand::toArray(['key' => 'ALDO-7', 'fields' => ['summary' => 'S']], '', [[
+            'author' => ['displayName' => 'Ada'],
+            'created' => '2026-08-01T10:22:00.000+0200',
+            'updated' => '2026-08-01T10:22:00.000+0200',
+            'body' => ['type' => 'doc', 'version' => 1, 'content' => [
+                ['type' => 'paragraph', 'content' => [['type' => 'text', 'text' => 'ship it']]],
+            ]],
+        ]]);
+
+        $this->assertSame('Ada', $json['comments'][0]['author']);
+        $this->assertSame('ship it', $json['comments'][0]['body']);
+        $this->assertSame('2026-08-01T10:22:00.000+0200', $json['comments'][0]['created']);
+    }
+
+    public function testCommentOptionIsDeclared(): void
+    {
+        $this->assertTrue($this->command->getDefinition()->hasOption('comments'));
+        $this->assertSame('c', $this->command->getDefinition()->getOption('comments')->getShortcut());
+    }
+
     public function testAngleBracketsInContentAreNotTreatedAsConsoleTags(): void
     {
         // Symfony's formatter would swallow (or choke on) <div>-looking text.

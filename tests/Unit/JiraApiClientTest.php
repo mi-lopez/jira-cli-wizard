@@ -269,6 +269,51 @@ class JiraApiClientTest extends TestCase
         $this->assertNull($client->getIssue('INVALID-999'));
     }
 
+    public function testGetIssueCommentsReturnsTheCommentRows(): void
+    {
+        $client = $this->clientWith([new Response(200, [], json_encode([
+            'startAt' => 0,
+            'maxResults' => 100,
+            'total' => 1,
+            'comments' => [['id' => '1', 'author' => ['displayName' => 'Ada']]],
+        ]))]);
+
+        $comments = $client->getIssueComments('ALDO-7');
+
+        $this->assertCount(1, $comments);
+        $this->assertSame('Ada', $comments[0]['author']['displayName']);
+        $this->assertStringContainsString('/rest/api/3/issue/ALDO-7/comment', (string) $this->lastRequest()->getUri());
+    }
+
+    public function testGetIssueCommentsWalksEveryPage(): void
+    {
+        // A busy ticket outgrows Jira's page size; stopping at the first page
+        // would silently hide the newest comments.
+        $page = static fn (int $startAt, array $ids) => new Response(200, [], json_encode([
+            'startAt' => $startAt,
+            'maxResults' => 100,
+            'total' => 3,
+            'comments' => array_map(static fn (string $id) => ['id' => $id], $ids),
+        ]));
+
+        $client = $this->clientWith([$page(0, ['1', '2']), $page(2, ['3'])]);
+
+        $this->assertCount(3, $client->getIssueComments('ALDO-7'));
+    }
+
+    public function testGetIssueCommentsReturnsWhatItHasWhenJiraFails(): void
+    {
+        $client = $this->clientWith([
+            new RequestException(
+                'Boom',
+                new Request('GET', '/rest/api/3/issue/ALDO-7/comment'),
+                new Response(500)
+            ),
+        ]);
+
+        $this->assertSame([], $client->getIssueComments('ALDO-7'));
+    }
+
     public function testGetIssueRequestsTheLabelsField(): void
     {
         // create-from prefills labels from the template ticket, which only works

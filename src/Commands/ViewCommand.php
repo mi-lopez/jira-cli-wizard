@@ -47,13 +47,17 @@ class ViewCommand extends Command
                 InputArgument::REQUIRED,
                 'The issue key to display (e.g., ALDO-1234)'
             )
-            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the raw issue as JSON (for scripting/AI agents)')
+            ->addOption('json', null, InputOption::VALUE_NONE, 'Print the ticket as JSON (for scripting/AI agents)')
+            ->addOption('comments', 'c', InputOption::VALUE_NONE, 'Also fetch and show the ticket comments')
             ->setHelp(
                 'Reads a ticket and prints its fields plus the description, converting Jira\'s' . PHP_EOL .
                 'rich text back to the same Markdown flavour `create` and `update` accept.' . PHP_EOL . PHP_EOL .
                 'Examples:' . PHP_EOL .
                 '  jira-wizard view ALDO-1234' . PHP_EOL .
+                '  jira-wizard view ALDO-1234 --comments' . PHP_EOL .
                 '  jira-wizard view aldo-1234 --json' . PHP_EOL . PHP_EOL .
+                'Comments live behind their own endpoint, so they cost an extra request and' . PHP_EOL .
+                'are only fetched when --comments is passed.' . PHP_EOL . PHP_EOL .
                 '--json prints a flattened summary of the ticket, not Jira\'s raw payload:' . PHP_EOL .
                 'the API response carries the changelog and every rendered field, which is' . PHP_EOL .
                 'noise for a script that just wants the ticket.'
@@ -98,16 +102,20 @@ class ViewCommand extends Command
             return Command::FAILURE;
         }
 
+        $comments = $input->getOption('comments')
+            ? $this->jiraClient->getIssueComments($issueKey)
+            : null;
+
         if ($input->getOption('json')) {
             $output->write(json_encode(
-                self::toArray($issue, $jiraUrl),
+                self::toArray($issue, $jiraUrl, $comments),
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
             ));
 
             return Command::SUCCESS;
         }
 
-        $this->renderIssue($output, $issue, $jiraUrl);
+        $this->renderIssue($output, $issue, $jiraUrl, $comments);
 
         return Command::SUCCESS;
     }
@@ -124,9 +132,10 @@ class ViewCommand extends Command
     }
 
     /**
-     * @param array<string, mixed> $issue
+     * @param array<string, mixed>                  $issue
+     * @param array<int, array<string, mixed>>|null $comments null when they were not requested
      */
-    public function renderIssue(OutputInterface $output, array $issue, string $baseUrl = ''): void
+    public function renderIssue(OutputInterface $output, array $issue, string $baseUrl = '', ?array $comments = null): void
     {
         $fields = is_array($issue['fields'] ?? null) ? $issue['fields'] : [];
         $key = is_string($issue['key'] ?? null) ? $issue['key'] : '';
@@ -150,7 +159,48 @@ class ViewCommand extends Command
             $output->writeln('');
             $output->writeln(OutputFormatter::escape($description));
         }
+
+        if ($comments !== null) {
+            $this->renderComments($output, $comments);
+        }
+
         $output->writeln('');
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $comments
+     */
+    private function renderComments(OutputInterface $output, array $comments): void
+    {
+        $output->writeln('');
+
+        if ($comments === []) {
+            $output->writeln('<fg=gray>(no comments)</fg=gray>');
+
+            return;
+        }
+
+        $output->writeln('<fg=blue;options=bold>Comments (' . count($comments) . ')</fg=blue;options=bold>');
+
+        foreach ($comments as $comment) {
+            $author = self::nestedField($comment, 'author', 'displayName');
+            $created = self::date(self::stringField($comment, 'created'));
+            $updated = self::date(self::stringField($comment, 'updated'));
+            // Jira sets updated to created on untouched comments; only a real
+            // edit is worth the extra words.
+            $edited = $updated !== '' && $updated !== $created ? " (edited {$updated})" : '';
+
+            $output->writeln('');
+            $output->writeln(OutputFormatter::escape(
+                '  ' . ($author !== '' ? $author : 'Unknown') . ' · ' . $created . $edited
+            ));
+
+            $body = AdfToText::convert($comment['body'] ?? null);
+
+            foreach (explode("\n", $body === '' ? '(empty)' : $body) as $line) {
+                $output->writeln(OutputFormatter::escape('  ' . $line));
+            }
+        }
     }
 
     /**
@@ -158,11 +208,15 @@ class ViewCommand extends Command
      * only the fields a caller asked to see, with the description already
      * converted to Markdown.
      *
-     * @param array<string, mixed> $issue
+     * @param array<string, mixed>                  $issue
+     * @param array<int, array<string, mixed>>|null $comments null when they were
+     *                                                        not requested, which
+     *                                                        is not the same as a
+     *                                                        ticket having none
      *
      * @return array<string, mixed>
      */
-    public static function toArray(array $issue, string $baseUrl = ''): array
+    public static function toArray(array $issue, string $baseUrl = '', ?array $comments = null): array
     {
         $fields = is_array($issue['fields'] ?? null) ? $issue['fields'] : [];
         $key = is_string($issue['key'] ?? null) ? $issue['key'] : '';
@@ -185,7 +239,15 @@ class ViewCommand extends Command
             'created' => self::nullIfEmpty(self::stringField($fields, 'created')),
             'updated' => self::nullIfEmpty(self::stringField($fields, 'updated')),
             'description' => AdfToText::convert($fields['description'] ?? null),
-        ];
+        ] + ($comments === null ? [] : ['comments' => array_map(
+            static fn (array $comment) => [
+                'author' => self::nestedField($comment, 'author', 'displayName'),
+                'created' => self::nullIfEmpty(self::stringField($comment, 'created')),
+                'updated' => self::nullIfEmpty(self::stringField($comment, 'updated')),
+                'body' => AdfToText::convert($comment['body'] ?? null),
+            ],
+            $comments
+        )]);
     }
 
     private static function nullIfEmpty(string $value): ?string
