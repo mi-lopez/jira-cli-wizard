@@ -16,7 +16,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'list', description: 'List Jira resources as JSON (for scripting/AI agents)')]
 class ListCommand extends Command
 {
-    public const RESOURCES = ['projects', 'issue-types', 'priorities', 'epics', 'sprints'];
+    public const RESOURCES = ['projects', 'issue-types', 'priorities', 'epics', 'sprints', 'transitions'];
 
     protected function configure(): void
     {
@@ -32,13 +32,15 @@ class ListCommand extends Command
                 . "  jira-wizard list issue-types --project=ALDO\n"
                 . "  jira-wizard list priorities\n"
                 . "  jira-wizard list epics --project=ALDO\n"
+                . "  jira-wizard list transitions --issue=ALDO-123\n"
             )
             ->addArgument(
                 'resource',
                 InputArgument::OPTIONAL,
                 "Resource to list. One of: {$resourceList}"
             )
-            ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project key (required for issue-types and epics)');
+            ->addOption('project', 'p', InputOption::VALUE_REQUIRED, 'Project key (required for issue-types and epics)')
+            ->addOption('issue', 'i', InputOption::VALUE_REQUIRED, 'Issue key (required for transitions)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -49,7 +51,7 @@ class ListCommand extends Command
             $resourceList = implode(', ', self::RESOURCES);
             $output->writeln("<info>Available resources:</info> {$resourceList}");
             $output->writeln('');
-            $output->writeln('Usage: jira-wizard list <resource> [--project=KEY]');
+            $output->writeln('Usage: jira-wizard list <resource> [--project=KEY] [--issue=KEY]');
 
             return Command::SUCCESS;
         }
@@ -131,6 +133,24 @@ class ListCommand extends Command
                 return array_map(
                     static fn (array $e) => ['key' => $e['key'], 'summary' => $e['fields']['summary']],
                     $client->getEpics($projectKey)
+                );
+
+            case 'transitions':
+                // Keyed off the issue, not the project: which moves are legal
+                // depends on where this ticket currently stands in the workflow.
+                $issueKey = $input->getOption('issue');
+
+                if (!$issueKey) {
+                    throw new \InvalidArgumentException('--issue is required for transitions');
+                }
+
+                return array_map(
+                    static fn (array $t) => [
+                        'id' => $t['id'],
+                        'name' => $t['name'],
+                        'to' => $t['to']['name'] ?? null,
+                    ],
+                    $client->getTransitions(strtoupper($issueKey))
                 );
 
             case 'sprints':

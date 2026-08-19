@@ -32,6 +32,7 @@ class ListCommandTest extends TestCase
         $this->assertSame('list', $this->command->getName());
         $this->assertTrue($definition->hasArgument('resource'));
         $this->assertTrue($definition->hasOption('project'));
+        $this->assertTrue($definition->hasOption('issue'));
     }
 
     public function testHelpTextMentionsAllResources(): void
@@ -77,6 +78,6 @@ class ListCommandTest extends TestCase
 
     public function testAllResourcesAreDeclared(): void
     {
-        $this->assertSame(['projects', 'issue-types', 'priorities', 'epics', 'sprints'], ListCommand::RESOURCES);
+        $this->assertSame(['projects', 'issue-types', 'priorities', 'epics', 'sprints', 'transitions'], ListCommand::RESOURCES);
     }
 }

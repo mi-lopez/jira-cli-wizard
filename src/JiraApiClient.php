@@ -334,6 +334,48 @@ class JiraApiClient
     }
 
     /**
+     * Get the transitions available from the issue's current status.
+     *
+     * Status is not a writable field: it moves through the workflow, so Jira
+     * only offers the steps that are legal from where the ticket stands right
+     * now. Anything not in this list would be rejected.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getTransitions(string $issueKey): array
+    {
+        try {
+            $response = $this->client->get("/rest/api/3/issue/{$issueKey}/transitions");
+            $data = json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            return [];
+        }
+
+        if (!is_array($data) || !is_array($data['transitions'] ?? null)) {
+            return [];
+        }
+
+        return array_values(array_filter($data['transitions'], static fn ($t) => is_array($t)));
+    }
+
+    /**
+     * Move an issue through one workflow transition.
+     */
+    public function transitionIssue(string $issueKey, string $transitionId): bool
+    {
+        try {
+            $response = $this->client->post("/rest/api/3/issue/{$issueKey}/transitions", [
+                'json' => ['transition' => ['id' => $transitionId]],
+            ]);
+
+            return $response->getStatusCode() === 204;
+        } catch (RequestException $e) {
+            $errorBody = $e->getResponse() ? $e->getResponse()->getBody()->getContents() : '';
+            throw new \Exception("Failed to transition issue {$issueKey}: " . $e->getMessage() . "\nResponse: " . $errorBody);
+        }
+    }
+
+    /**
      * Update an existing issue.
      */
     public function updateIssue(string $issueKey, array $issueData): bool

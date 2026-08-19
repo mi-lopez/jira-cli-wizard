@@ -14,12 +14,13 @@ A beautiful, interactive CLI wizard for creating Jira tickets with smart default
 - 🎯 **Smart Defaults**: Suggests active sprints, recent epics, and assignees
 - 🚀 **Quick Creation**: Create tickets based on existing ones
 - ✏️ **Update Command**: Modify fields on existing tickets, interactively or by flag
+- 🔀 **Workflow Transitions**: Move a ticket's status by name, and list the moves that are legal right now
 - 👀 **View Command**: Read a ticket and its comments in the terminal, with the text back in Markdown
 - 📎 **Attachments**: Upload files and screenshots on create, create-from and update
 - 📝 **Markdown Descriptions**: Headings, lists, bold, italic, code and links render as real Jira ADF
 - 🏷️ **Labels**: Prompted in the wizard, prefilled from the template when copying a ticket
 - 🔄 **Template System**: Copy settings from existing tickets
-- 🔍 **Resource Discovery**: List projects, issue types, priorities, epics, and sprints as JSON
+- 🔍 **Resource Discovery**: List projects, issue types, priorities, epics, sprints and transitions as JSON
 - 🧪 **Dry Run**: Preview the full payload before creating any ticket
 - 🔒 **Secure**: API token-based authentication
 - 🎨 **Beautiful UI**: Colorful, user-friendly terminal interface
@@ -334,7 +335,8 @@ echo "Created: $KEY"
   --priority=High \
   --assignee=me \
   --labels=backend,upgrade \
-  --sprint=active
+  --sprint=active \
+  --status="En cours"
 
 # Interactive: current values are offered as defaults
 ./vendor/bin/jira-wizard update ALDO-123
@@ -345,6 +347,12 @@ echo "Created: $KEY"
 
 Fields accept the same values as `create`. Two update-specific conventions:
 
+- `--status` moves the ticket through the workflow. Status is not a writable field in Jira,
+  so this rides `POST /issue/{key}/transitions` instead of the field update. It accepts a
+  transition id, a transition name, or the name of the resulting status, matched
+  case-insensitively; an unambiguous fragment works too. When nothing matches, the error
+  lists what is legal from the current status. Asking for the status the ticket already has
+  is a no-op, not a failure, so re-running a script is safe.
 - `--assignee=unassigned` (or `none`) clears the assignee.
 - `--epic=none` clears the parent link.
 - An empty `--labels=` clears every label, whereas omitting the flag leaves them untouched.
@@ -470,6 +478,19 @@ Discover valid values for flags before scripting or using with an AI agent:
 
 # List active sprint for a project
 ./vendor/bin/jira-wizard list sprints --project=ALDO
+
+# List the transitions available on a ticket right now
+./vendor/bin/jira-wizard list transitions --issue=ALDO-123
+```
+
+Transitions are keyed off the issue, not the project: which moves are legal depends on
+where the ticket currently stands, so the list never offers a step Jira would reject.
+
+```json
+[
+  {"id": "2",   "name": "En cours de traitement", "to": "En cours de traitement"},
+  {"id": "271", "name": "Annulé",                 "to": "Annulé"}
+]
 ```
 
 **Example output (`list projects`):**
@@ -890,6 +911,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contributors**: All the amazing people who help improve this tool
 
 ## 📈 Changelog
+
+### [1.5.0] - 2026-08-19
+
+Added
+- 🔀 `update --status` — move a ticket through its workflow by transition name, id or target status name, matched case-insensitively; unmatched values report what is legal from the current status, and asking for the status the ticket already has is a no-op
+- 🔍 `list transitions --issue=KEY` — the transitions available from where the ticket stands, for scripts and AI agents
 
 ### [1.4.0] - 2026-08-19
 
