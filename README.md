@@ -14,6 +14,7 @@ A beautiful, interactive CLI wizard for creating Jira tickets with smart default
 - 🎯 **Smart Defaults**: Suggests active sprints, recent epics, and assignees
 - 🚀 **Quick Creation**: Create tickets based on existing ones
 - ✏️ **Update Command**: Modify fields on existing tickets, interactively or by flag
+- 👀 **View Command**: Read a ticket in the terminal, with its description back in Markdown
 - 📎 **Attachments**: Upload files and screenshots on create, create-from and update
 - 📝 **Markdown Descriptions**: Headings, lists, bold, italic, code and links render as real Jira ADF
 - 🏷️ **Labels**: Prompted in the wizard, prefilled from the template when copying a ticket
@@ -348,6 +349,50 @@ Fields accept the same values as `create`. Two update-specific conventions:
 - `--epic=none` clears the parent link.
 - An empty `--labels=` clears every label, whereas omitting the flag leaves them untouched.
 
+### View a Ticket
+
+```bash
+./vendor/bin/jira-wizard view ALDO-123
+
+# Keys are case-insensitive
+./vendor/bin/jira-wizard view aldo-123
+
+# Flattened summary for scripts and AI agents
+./vendor/bin/jira-wizard view ALDO-123 --json
+```
+
+```text
+ALDO-123 Checkout crashes on retry
+────────────────────────────────────────────────────────────
+  Status     In Progress
+  Type       Bug
+  Priority   High
+  Assignee   Ada Lovelace
+  Reporter   Alan Turing
+  Project    ALDO
+  Parent     ALDO-9 — Checkout
+  Labels     backend, urgent
+  Created    2026-08-01 10:22
+  Updated    2026-08-18 16:40
+  URL        https://your-domain.atlassian.net/browse/ALDO-123
+
+Description
+
+## Steps
+
+1. Add an item to the cart
+2. Retry the payment
+```
+
+The description comes back from Jira as ADF and is rendered in the same Markdown flavour
+`create` and `update` accept, so a ticket can be read, edited and sent back without the
+formatting drifting. Headings, lists, task lists, tables, code blocks, quotes, mentions and
+links are all preserved; attachments show as `[attachment: name]`.
+
+`--json` prints a flattened object — key, url, summary, status, type, priority, assignee,
+reporter, project, parent, labels, timestamps and the Markdown description — rather than
+Jira's raw payload, which also carries the changelog and every rendered field.
+
 ### Attach Files
 
 Works on `create`, `create-from` and `update`. The flag is repeatable and the wizard also
@@ -449,6 +494,21 @@ Create a new ticket using an existing ticket as a template.
 
 # Quick bug fix based on existing bug
 ./vendor/bin/jira-wizard create-from PROJ-123
+```
+
+### View a Ticket
+
+```bash
+./vendor/bin/jira-wizard view <ISSUE-KEY> [--json]
+```
+
+**Examples:**
+```bash
+# Read a ticket in the terminal
+./vendor/bin/jira-wizard view ALDO-123
+
+# Pipe the ticket into another tool
+./vendor/bin/jira-wizard view ALDO-123 --json | jq -r .description
 ```
 
 ### Configure Credentials
@@ -686,10 +746,16 @@ composer phpstan
 │   ├── Commands/
 │   │   ├── CreateTicketCommand.php              # Interactive wizard + non-interactive mode
 │   │   ├── CreateFromCommand.php                # Template creation command
+│   │   ├── UpdateCommand.php                    # Field updates on existing tickets
+│   │   ├── ViewCommand.php                      # Read a ticket in the terminal
 │   │   ├── ListCommand.php                      # JSON resource listing
 │   │   ├── ConfigureCommand.php                 # Configuration command
 │   │   └── StatusCommand.php                    # Status command
 │   ├── Helpers/
+│   │   ├── AdfToText.php                        # Jira rich text back to Markdown
+│   │   ├── AssigneeResolver.php                 # Name/email/account id/`me` resolution
+│   │   ├── LabelParser.php                      # Label list parsing
+│   │   ├── MarkdownToAdf.php                    # Markdown to Jira rich text
 │   │   └── ConsoleHelper.php                    # Pretty console output
 │   ├── JiraApiClient.php                        # Jira API integration
 │   ├── ConfigManager.php                        # Configuration management
@@ -802,6 +868,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contributors**: All the amazing people who help improve this tool
 
 ## 📈 Changelog
+
+### [1.3.0] - 2026-08-19
+
+Added
+- 👀 `view` command — print a ticket's fields and description in the terminal, with `--json` for scripts and AI agents
+- 🔤 `AdfToText` helper — converts Jira's ADF back to the Markdown flavour `create` and `update` accept, so a description survives a read/edit round trip
 
 ### [1.2.0] - 2026-08-05
 

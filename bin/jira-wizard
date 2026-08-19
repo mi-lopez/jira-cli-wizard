@@ -9,6 +9,7 @@ use MiLopez\JiraCliWizard\Commands\CreateTicketCommand;
 use MiLopez\JiraCliWizard\Commands\ListCommand;
 use MiLopez\JiraCliWizard\Commands\StatusCommand;
 use MiLopez\JiraCliWizard\Commands\UpdateCommand;
+use MiLopez\JiraCliWizard\Commands\ViewCommand;
 use Symfony\Component\Console\Application;
 
 // Autoload
@@ -38,6 +39,7 @@ if (empty($argv[1]) || in_array($argv[1], ['--help', '-h', 'help'])) {
 Available commands:
  create       Create a new Jira ticket (default)
  create-from  Create a ticket based on existing one
+ view         Show an existing ticket in the terminal
  update       Update an existing Jira ticket
  list         List Jira resources as JSON (projects, issue-types, priorities, epics)
  configure    Configure Jira credentials
@@ -49,7 +51,7 @@ Usage: jira-wizard [command] [options]
 Quick start:
  1. jira-wizard configure
  2. jira-wizard create
- 3. jira-wizard create-from CAM-1106
+ 3. jira-wizard view CAM-1106
 
 BANNER;
 
@@ -65,6 +67,7 @@ BANNER;
 $application->add(new CreateTicketCommand());
 $application->add(new CreateFromCommand());
 $application->add(new UpdateCommand());
+$application->add(new ViewCommand());
 $application->add(new ListCommand());
 $application->add(new ConfigureCommand());
 $application->add(new StatusCommand());

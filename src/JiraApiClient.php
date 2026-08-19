@@ -257,7 +257,9 @@ class JiraApiClient
             $response = $this->client->get("/rest/api/3/issue/{$issueKey}", [
                 'query' => [
                     'expand' => 'names,schema,operations,editmeta,changelog,renderedFields',
-                    'fields' => 'summary,description,issuetype,priority,assignee,project,parent,sprint,status,labels',
+                    // reporter/created/updated are only read by `view`; the
+                    // other commands ignore the extra fields.
+                    'fields' => 'summary,description,issuetype,priority,assignee,reporter,project,parent,sprint,status,labels,created,updated',
                 ],
             ]);
 
