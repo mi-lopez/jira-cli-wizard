@@ -270,6 +270,52 @@ class JiraApiClient
     }
 
     /**
+     * Get every comment on an issue, oldest first.
+     *
+     * Comments are not part of the issue payload the other commands request,
+     * and a busy ticket outgrows a single page, so this walks the dedicated
+     * endpoint until Jira stops handing back rows.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getIssueComments(string $issueKey): array
+    {
+        $comments = [];
+        $startAt = 0;
+
+        do {
+            try {
+                $response = $this->client->get("/rest/api/3/issue/{$issueKey}/comment", [
+                    'query' => [
+                        'startAt' => $startAt,
+                        'maxResults' => 100,
+                        'orderBy' => 'created',
+                    ],
+                ]);
+            } catch (RequestException $e) {
+                return $comments;
+            }
+
+            $page = json_decode($response->getBody()->getContents(), true);
+
+            if (!is_array($page) || !is_array($page['comments'] ?? null)) {
+                return $comments;
+            }
+
+            foreach ($page['comments'] as $comment) {
+                if (is_array($comment)) {
+                    $comments[] = $comment;
+                }
+            }
+
+            $startAt += count($page['comments']);
+            $total = (int) ($page['total'] ?? count($comments));
+        } while ($page['comments'] !== [] && $startAt < $total);
+
+        return $comments;
+    }
+
+    /**
      * Add issue to sprint.
      */
     public function addIssueToSprint(string $issueKey, int $sprintId): bool

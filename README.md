@@ -14,7 +14,7 @@ A beautiful, interactive CLI wizard for creating Jira tickets with smart default
 - 🎯 **Smart Defaults**: Suggests active sprints, recent epics, and assignees
 - 🚀 **Quick Creation**: Create tickets based on existing ones
 - ✏️ **Update Command**: Modify fields on existing tickets, interactively or by flag
-- 👀 **View Command**: Read a ticket in the terminal, with its description back in Markdown
+- 👀 **View Command**: Read a ticket and its comments in the terminal, with the text back in Markdown
 - 📎 **Attachments**: Upload files and screenshots on create, create-from and update
 - 📝 **Markdown Descriptions**: Headings, lists, bold, italic, code and links render as real Jira ADF
 - 🏷️ **Labels**: Prompted in the wizard, prefilled from the template when copying a ticket
@@ -357,6 +357,9 @@ Fields accept the same values as `create`. Two update-specific conventions:
 # Keys are case-insensitive
 ./vendor/bin/jira-wizard view aldo-123
 
+# Include the comment thread
+./vendor/bin/jira-wizard view ALDO-123 --comments
+
 # Flattened summary for scripts and AI agents
 ./vendor/bin/jira-wizard view ALDO-123 --json
 ```
@@ -389,9 +392,25 @@ The description comes back from Jira as ADF and is rendered in the same Markdown
 formatting drifting. Headings, lists, task lists, tables, code blocks, quotes, mentions and
 links are all preserved; attachments show as `[attachment: name]`.
 
+`--comments` (`-c`) appends the thread, oldest first, with author, date and an `(edited …)`
+marker when the comment was actually changed. Comments live behind their own endpoint, so
+they cost an extra request and are only fetched when you ask for them:
+
+```text
+Comments (2)
+
+  Victor Donoso · 2026-04-09 18:00
+  No se necesitan cambios, validado hoy con Marina.
+
+  Ada Lovelace · 2026-04-10 09:12 (edited 2026-04-10 09:30)
+  Reopened: it still fails on **staging**.
+```
+
 `--json` prints a flattened object — key, url, summary, status, type, priority, assignee,
 reporter, project, parent, labels, timestamps and the Markdown description — rather than
-Jira's raw payload, which also carries the changelog and every rendered field.
+Jira's raw payload, which also carries the changelog and every rendered field. With
+`--comments` it also carries a `comments` array (author, created, updated, Markdown body);
+without the flag the key is absent, which is a different claim from an empty list.
 
 ### Attach Files
 
@@ -499,13 +518,16 @@ Create a new ticket using an existing ticket as a template.
 ### View a Ticket
 
 ```bash
-./vendor/bin/jira-wizard view <ISSUE-KEY> [--json]
+./vendor/bin/jira-wizard view <ISSUE-KEY> [--comments] [--json]
 ```
 
 **Examples:**
 ```bash
 # Read a ticket in the terminal
 ./vendor/bin/jira-wizard view ALDO-123
+
+# Read it with its comment thread
+./vendor/bin/jira-wizard view ALDO-123 -c
 
 # Pipe the ticket into another tool
 ./vendor/bin/jira-wizard view ALDO-123 --json | jq -r .description
@@ -868,6 +890,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Contributors**: All the amazing people who help improve this tool
 
 ## 📈 Changelog
+
+### [1.4.0] - 2026-08-19
+
+Added
+- 💬 `view --comments` (`-c`) — appends the comment thread, oldest first, with author, date and an `(edited …)` marker; paginated, so long threads come back whole
+
+Fixed
+- 🐛 **`--version` reported `1.0.0` on every release.** The string was hardcoded when the CLI was written and never bumped; it now comes from Composer's installed version
 
 ### [1.3.0] - 2026-08-19
 
