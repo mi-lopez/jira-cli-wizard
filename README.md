@@ -869,7 +869,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📈 Changelog
 
-### [Unreleased]
+### [1.3.0] - 2026-08-19
 
 Added
 - 👀 `view` command — print a ticket's fields and description in the terminal, with `--json` for scripts and AI agents
