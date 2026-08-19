@@ -269,6 +269,45 @@ class JiraApiClientTest extends TestCase
         $this->assertNull($client->getIssue('INVALID-999'));
     }
 
+    public function testGetTransitionsReturnsTheWorkflowRows(): void
+    {
+        $client = $this->clientWith([new Response(200, [], json_encode([
+            'transitions' => [['id' => '2', 'name' => 'En cours', 'to' => ['name' => 'En cours']]],
+        ]))]);
+
+        $transitions = $client->getTransitions('ALDO-7');
+
+        $this->assertSame('2', $transitions[0]['id']);
+        $this->assertStringContainsString('/rest/api/3/issue/ALDO-7/transitions', (string) $this->lastRequest()->getUri());
+    }
+
+    public function testGetTransitionsReturnsNothingWhenJiraRefuses(): void
+    {
+        $client = $this->clientWith([
+            new RequestException(
+                'Forbidden',
+                new Request('GET', '/rest/api/3/issue/ALDO-7/transitions'),
+                new Response(403)
+            ),
+        ]);
+
+        $this->assertSame([], $client->getTransitions('ALDO-7'));
+    }
+
+    public function testTransitionIssuePostsTheTransitionId(): void
+    {
+        $client = $this->clientWith([new Response(204)]);
+
+        $this->assertTrue($client->transitionIssue('ALDO-7', '281'));
+
+        $request = $this->lastRequest();
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertSame(
+            ['transition' => ['id' => '281']],
+            json_decode((string) $request->getBody(), true)
+        );
+    }
+
     public function testGetIssueCommentsReturnsTheCommentRows(): void
     {
         $client = $this->clientWith([new Response(200, [], json_encode([

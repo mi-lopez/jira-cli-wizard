@@ -66,6 +66,7 @@ class UpdateCommand extends Command
             ->addOption('assignee', null, InputOption::VALUE_REQUIRED, 'New assignee (displayName, email, accountId, or "unassigned")')
             ->addOption('labels', 'l', InputOption::VALUE_REQUIRED, 'Comma-separated labels')
             ->addOption('sprint', null, InputOption::VALUE_REQUIRED, 'Sprint ID or "active"')
+            ->addOption('status', null, InputOption::VALUE_REQUIRED, 'New status, by transition name or id (e.g. "In Progress")')
             ->addOption('attachment', null, InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Path to attachment files/images to upload (repeatable)')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the payload JSON without updating the ticket');
     }
@@ -135,7 +136,7 @@ class UpdateCommand extends Command
                 }
             }
 
-            if (empty($payload['fields']) && empty($payload['sprint_id']) && empty($attachments)) {
+            if (empty($payload['fields']) && empty($payload['sprint_id']) && empty($payload['status']) && empty($attachments)) {
                 $this->consoleHelper->warning('No fields or attachments to update.');
 
                 return Command::SUCCESS;
@@ -145,11 +146,17 @@ class UpdateCommand extends Command
             $sprintId = $payload['sprint_id'] ?? null;
             unset($payload['sprint_id']);
 
+            $status = $payload['status'] ?? null;
+            unset($payload['status']);
+
             if ($isDryRun) {
                 $this->consoleHelper->info('📋 Dry Run Payload:');
                 $dryRunPayload = $payload;
                 if ($sprintId) {
                     $dryRunPayload['_sprint_id'] = $sprintId;
+                }
+                if ($status) {
+                    $dryRunPayload['_status'] = $status;
                 }
                 if (!empty($attachments)) {
                     $dryRunPayload['_attachments'] = $attachments;
@@ -163,6 +170,10 @@ class UpdateCommand extends Command
                 $this->consoleHelper->info("🚀 Updating issue {$issueKey}...");
                 $this->jiraClient->updateIssue($issueKey, $payload);
                 $this->consoleHelper->success('✅ Issue updated successfully!');
+            }
+
+            if ($status !== null && !$this->applyStatus($issueKey, (string) $status, $issue)) {
+                return Command::FAILURE;
             }
 
             if ($sprintId) {
@@ -196,6 +207,99 @@ class UpdateCommand extends Command
         }
     }
 
+    /**
+     * Moves the ticket to the requested status, reporting what went wrong in
+     * terms of the workflow rather than of the API.
+     *
+     * @param array<string, mixed> $issue the issue as it was fetched, used to
+     *                                    recognise a status it already holds
+     */
+    private function applyStatus(string $issueKey, string $status, array $issue): bool
+    {
+        $current = $issue['fields']['status']['name'] ?? null;
+
+        if (is_string($current) && strcasecmp($current, $status) === 0) {
+            // Re-running a script that already moved the ticket is not a failure.
+            $this->consoleHelper->info("⏭️  Already in status '{$current}', nothing to transition.");
+
+            return true;
+        }
+
+        $transitions = $this->jiraClient->getTransitions($issueKey);
+
+        if ($transitions === []) {
+            $this->consoleHelper->error("❌ No transitions available for {$issueKey}. Check your permissions on the workflow.");
+
+            return false;
+        }
+
+        $matches = self::matchTransitions($transitions, $status);
+
+        if (count($matches) !== 1) {
+            $available = implode(', ', array_map(
+                static fn (array $t) => ($t['name'] ?? '?') . ' (id ' . ($t['id'] ?? '?') . ')',
+                $transitions
+            ));
+
+            $this->consoleHelper->error(
+                $matches === []
+                    ? "❌ No transition matches '{$status}'."
+                    : "❌ '{$status}' matches more than one transition."
+            );
+            $this->consoleHelper->warning(
+                'Available from ' . (is_string($current) ? "'{$current}'" : 'the current status') . ': ' . $available
+            );
+
+            return false;
+        }
+
+        $transition = $matches[0];
+        $name = (string) ($transition['name'] ?? $status);
+
+        $this->consoleHelper->info("🔀 Transitioning {$issueKey} via '{$name}'...");
+        $this->jiraClient->transitionIssue($issueKey, (string) $transition['id']);
+        $this->consoleHelper->success('✅ Status updated successfully!');
+
+        return true;
+    }
+
+    /**
+     * Resolves what the user typed against the transitions Jira offers: an id,
+     * an exact name, the resulting status name, or an unambiguous prefix.
+     *
+     * @param array<int, array<string, mixed>> $transitions
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function matchTransitions(array $transitions, string $wanted): array
+    {
+        $wanted = trim($wanted);
+
+        foreach ($transitions as $transition) {
+            if ((string) ($transition['id'] ?? '') === $wanted) {
+                return [$transition];
+            }
+        }
+
+        $exact = array_values(array_filter(
+            $transitions,
+            static fn (array $t) => strcasecmp((string) ($t['name'] ?? ''), $wanted) === 0
+                || strcasecmp((string) ($t['to']['name'] ?? ''), $wanted) === 0
+        ));
+
+        if ($exact !== []) {
+            return [$exact[0]];
+        }
+
+        return array_values(array_filter(
+            $transitions,
+            static fn (array $t) => $wanted !== '' && (
+                stripos((string) ($t['name'] ?? ''), $wanted) !== false
+                || stripos((string) ($t['to']['name'] ?? ''), $wanted) !== false
+            )
+        ));
+    }
+
     private function hasUpdateOptions(InputInterface $input): bool
     {
         return $input->getOption('summary') !== null
@@ -206,7 +310,8 @@ class UpdateCommand extends Command
             || $input->getOption('priority') !== null
             || $input->getOption('assignee') !== null
             || $input->getOption('labels') !== null
-            || $input->getOption('sprint') !== null;
+            || $input->getOption('sprint') !== null
+            || $input->getOption('status') !== null;
     }
 
     public function buildNonInteractivePayload(InputInterface $input, string $projectKey): array
@@ -257,6 +362,14 @@ class UpdateCommand extends Command
         $labelsRaw = $input->getOption('labels');
         if ($labelsRaw !== null) {
             $payload['fields']['labels'] = LabelParser::parse($labelsRaw);
+        }
+
+        // Status is not a field: it rides a workflow transition on its own
+        // endpoint. It is carried here unresolved so --dry-run stays offline,
+        // and applied after the field update lands.
+        $status = $input->getOption('status');
+        if ($status !== null) {
+            $payload['status'] = $status;
         }
 
         $sprint = $input->getOption('sprint');

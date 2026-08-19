@@ -39,6 +39,74 @@ class UpdateCommandTest extends TestCase
         return $this->command->buildNonInteractivePayload($input, 'ALDO');
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $transitions
+     */
+    private static function match(array $transitions, string $wanted): array
+    {
+        return UpdateCommand::matchTransitions($transitions, $wanted);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private static function workflow(): array
+    {
+        return [
+            ['id' => '2', 'name' => 'En cours de traitement', 'to' => ['name' => 'En cours de traitement']],
+            ['id' => '271', 'name' => 'Annulé', 'to' => ['name' => 'Annulé']],
+            ['id' => '281', 'name' => 'En cours', 'to' => ['name' => 'En cours de traitement']],
+        ];
+    }
+
+    public function testStatusRidesItsOwnKeyAndNeverTheFieldSet(): void
+    {
+        // Status is not writable through PUT /issue; sending it as a field
+        // would make Jira reject the whole update.
+        $payload = $this->payloadFor(['--status' => 'En cours']);
+
+        $this->assertSame('En cours', $payload['status']);
+        $this->assertSame([], $payload['fields']);
+    }
+
+    public function testTransitionsMatchById(): void
+    {
+        $this->assertSame('271', self::match(self::workflow(), '271')[0]['id']);
+    }
+
+    public function testTransitionsMatchByExactNameIgnoringCase(): void
+    {
+        $this->assertSame('271', self::match(self::workflow(), 'annulé')[0]['id']);
+    }
+
+    public function testAnExactNameWinsOverALongerOneItPrefixes(): void
+    {
+        // 'En cours' is both a transition of its own and the prefix of another;
+        // typing it exactly must not be reported as ambiguous.
+        $matches = self::match(self::workflow(), 'En cours');
+
+        $this->assertCount(1, $matches);
+        $this->assertSame('281', $matches[0]['id']);
+    }
+
+    public function testTransitionsMatchByTargetStatusName(): void
+    {
+        // Users think in terms of the status they want, not the button's label.
+        $matches = self::match([
+            ['id' => '3', 'name' => '(Re)Assignée', 'to' => ['name' => 'Assignée']],
+        ], 'Assignée');
+
+        $this->assertSame('3', $matches[0]['id']);
+    }
+
+    public function testAnAmbiguousFragmentReturnsEveryCandidate(): void
+    {
+        $this->assertCount(2, self::match(self::workflow(), 'cours de'));
+    }
+
+    public function testAnUnknownStatusMatchesNothing(): void
+    {
+        $this->assertSame([], self::match(self::workflow(), 'Done'));
+    }
+
     public function testOmittedOptionsProduceAnEmptyFieldSet(): void
     {
         // Every field is optional, and an absent option must not appear in the
