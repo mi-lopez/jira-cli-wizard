@@ -3,6 +3,7 @@
 
 declare(strict_types=1);
 
+use Composer\InstalledVersions;
 use MiLopez\JiraCliWizard\Commands\ConfigureCommand;
 use MiLopez\JiraCliWizard\Commands\CreateFromCommand;
 use MiLopez\JiraCliWizard\Commands\CreateTicketCommand;
@@ -25,7 +26,20 @@ foreach ($autoloadPaths as $autoloadPath) {
     }
 }
 
-$application = new Application('Jira CLI Wizard', '1.0.0');
+// Ask Composer what version is actually installed instead of hardcoding one:
+// the literal here was never bumped on any release, so `--version` reported
+// 1.0.0 for every version since.
+$version = 'dev';
+
+if (class_exists(InstalledVersions::class)) {
+    try {
+        $version = InstalledVersions::getPrettyVersion('mi-lopez/jira-cli-wizard') ?? $version;
+    } catch (\OutOfBoundsException $e) {
+        // Running from a checkout that Composer does not know about.
+    }
+}
+
+$application = new Application('Jira CLI Wizard', $version);
 
 // Show banner when no command is provided
 if (empty($argv[1]) || in_array($argv[1], ['--help', '-h', 'help'])) {
